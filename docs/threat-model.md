@@ -29,3 +29,18 @@ Admin credentials and TOTP secrets, session tokens, API tokens, the master key, 
 
 ## Out of scope for P1
 Workload isolation policy, Caddy configuration injection, host hardening lock-out risks, terminal escape. Each has its own section in the phase that ships it.
+
+## Host shell helper (P3) — accepted residual risk
+
+The host terminal runs through a root-side helper (ADR 0006) because the daemon is unprivileged and sandboxed.
+
+- **Asset:** a login shell as the operator, or as root.
+- **Boundary:** `codeplod` (uid `codeplo`) to `codeplo-pty@.service` (root) over a group-restricted unix socket.
+- **Controls:** `SO_PEERCRED` peer check; `Authorize` limits targets to sudo/wheel login users or root; root also needs
+  the host-owner file `/etc/codeplo/allow-root`; the daemon separately requires `terminal.allow_root`, `terminal:root`
+  and a fresh step-up; shell process group is killed when the socket drops; one audit row per ticket and per session.
+- **Residual risk:** a compromised daemon can request a shell for the sudo operator account. It cannot request root
+  unless the host owner enabled it, and cannot request non-sudo accounts. This is the privilege the operator account
+  was meant to have; it is not a new capability for an attacker who already holds the operator's credentials.
+- **Container shells** use the Docker socket (docker-group membership is root-equivalent on the host). The installer
+  grants it only when Docker is present, through a removable drop-in.

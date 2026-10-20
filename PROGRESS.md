@@ -3,9 +3,9 @@
 Status: **Phase 2 (P2a edge + audit + safe fixes, P2b reversible firewall, P2c guarded SSH) is
 implemented, compiled, race-tested and deployed on a real systemd host.** P2c stays behind
 `hardening.apply_tier3`, default off, as the plan requires until its VM matrix passes.
-Phase 3 (terminal & logs) is in progress: foundation (deps, `terminal_sessions`, settings
-seeds, frozen runtime port) built and gate-verified; shells, tickets, handlers and the Docker
-adapter are not.
+Phase 3 (terminal & logs): foundation built and gate-verified; tickets, host-shell helper, Docker
+adapter, handlers, daemon wiring, units and installer changes are **written but never compiled or run**
+(authored in a sandbox without a Go toolchain). See "Phase 3 — second pass" below.
 Evidence table below; full detail in `TEST_REPORT.md`, judgment calls in `docs/DECISIONS.md`.
 
 ## Phase 2 — what was built
@@ -59,9 +59,48 @@ paging with no skipped row, crash recovery idempotence, contract object shape).
 One real bug found and fixed while gating: `Store.List` returned the *next* page's first id as
 the cursor, which skipped a row.
 
-Remaining Phase 3 tasks: tickets (`ticket.go`), host PTY (`host*.go`), Docker runtime adapter
-(`runtime/docker.go`), the WS/SSE handlers and daemon wiring, the frontend wiring, and WSL
-runtime verification against real Docker + systemd.
+Remaining after the second pass: compile and fix, then runtime verification against real Docker + systemd.
+
+## Phase 3 — second pass (written, NOT compiled, NOT run)
+
+Authored without a Go toolchain, so treat every line as unverified until the gate below passes.
+
+| Area | Files | What it does |
+|---|---|---|
+| Tickets | `internal/modules/terminal/ticket.go` | single-use, 30 s, bound to user + target + resource + Origin; a failed binding check still burns the ticket |
+| Helper protocol | `terminal/frames.go`, `policy.go`, `host.go` | length-prefixed data/resize/exit frames; `Authorize` (sudo/wheel operator or root with a host flag file); `HelperSpawner` client |
+| Helper (root side) | `terminal/pty_helper_linux.go`, `pty_helper_other.go`, `cmd/codeplo` `pty-helper` | `SO_PEERCRED` check, PTY via `creack/pty`, process-group kill on socket loss; non-Linux build refuses |
+| Docker adapter | `internal/modules/runtime/docker.go` | `Available`, `Resolve` (label filter), `Logs` (demux or raw tty), `Exec` (hijacked attach, resize, poll-wait) |
+| Handlers | `internal/api/handlers_terminal.go`, `handlers_logs.go` | ticket, sessions, host + container WebSockets, log SSE with drop-oldest queue and `Last-Event-ID` resume |
+| Wiring | `internal/api/router.go`, `cmd/codeplod/main.go` | `Server.Tickets`, `Server.HostShells`; runtime wired when terminal or deploy is enabled; session recovery at start |
+| Deploy | `deploy/codeplo-pty.socket`, `deploy/codeplo-pty@.service`, `install.sh`, `Makefile dist` | helper units, docker drop-in, seven verified artefacts |
+| Docs | `docs/adr/0006-privileged-pty-helper.md`, `docs/DECISIONS.md` "Phase 3: handlers..." | why the helper exists and every judgment call |
+| Tests | `terminal/{ticket,policy}_test.go`, `runtime/docker_test.go`, `internal/api/terminal_test.go` | tickets, policy, frames, demux/backpressure, ticket rules, WS bridge end to end with fakes, session limit, log ids + resume, drop queue |
+
+**Known to need a human decision or a real host**
+- `gofmt -w .` first: hand-aligned one-line methods in test files may not match gofmt.
+- `pty.StartWithAttrs` (creack/pty v1.1.24) is used from memory; confirm the signature compiles.
+- `go.mod` lists `coder/websocket` as `// indirect`; `go mod tidy` will fix that now that it is imported directly.
+- The frontend is unchanged. The upgrade-time errors close 1008 with an `error` frame so `TerminalPane` shows them.
+- `install.sh` fixtures (WSL installer test) must now serve seven artefacts.
+- Hardening Tier 1 apply writes under `/etc` and runs `apt`/`systemctl`, which the unprivileged, `ProtectSystem=strict`
+  unit cannot do. That predates this pass; check how P2 apply was exercised before relying on it from the panel.
+
+**Verification still owed (§6.2 P3):** run the gate; then on a real systemd host with Docker: host shell as a real
+sudo operator, refusal with no operator, root off by default and step-up-gated when on (with and without
+`/etc/codeplo/allow-root`), close-the-tab ends the PTY (no leftover process), idle timeout, session limit, an
+audit row per ticket and per session, container shell, log tail/follow/resume across a reconnect and a dropped
+line notice under a slow reader.
+
+## Security note: a local-VM credential is in git history
+
+An earlier revision of this file carried the **local WSL test VM's root sudo password in plain text**
+(`PROGRESS.md` in commits `fde1796`, `48315f5`, `baad040`). It is gone from the working copy and from
+`origin/main`'s tip, but it is still in history. The credential only ever guarded a disposable local VM
+and is being rotated, so the history is deliberately left as it is.
+
+The rule going forward: **credentials are never written into this repo** — not passwords, tokens or
+`EnvironmentFile` values. When a test host needs one, the operator supplies it for that session.
 
 ## Exit criteria (§6.2)
 
@@ -146,7 +185,8 @@ crash recovery, the `codeplo.resource` label, frozen port).
 **Ground rules carried through P2, still binding:** smallest fix; never weaken a test; never report a skipped
 check as a pass; "tamper-evident", not "immutable"; RSS is reported, not tuned; judgment calls go in
 `docs/DECISIONS.md`; PROGRESS.md updated before every commit; one commit per unit of work; push when the local
-gates pass so CI runs the slow ones.
+gates pass so CI runs the slow ones. **No credentials in the repo, ever** — WSL root access is supplied by the
+operator when a test needs it.
 
 **Gates and host quirks on this machine**
 - `gofmt -l .` empty; `go build ./...`; `go vet ./...` and `go vet -tags spike ./...`;
@@ -156,7 +196,8 @@ gates pass so CI runs the slow ones.
   vitest under Node v22.23.3 with `--fileParallelism=false`; both under `/c/Users/hp/.config/herd/bin/`.
 - WSL is a flaky test host: it tears the distro down after ~8 min idle, wiping `/tmp`. Run each test sequence as
   **one** command, or hold it open with a background `wsl -d Ubuntu -u root -- sleep 900`, and put logs under
-  `/root`. Root sudo password `Hunde123`. Never `pkill -f <pattern>` when the pattern also appears in your own
+  `/root`. WSL root access is provided by the operator per session and is not recorded in this repo.
+  Never `pkill -f <pattern>` when the pattern also appears in your own
   command line — it kills your shell mid-run. A *running service is shared state*: stop and disable fixture
   units before running anything that probes `:80`/`:443`.
 - Left on WSL from the P2/P3 sessions (owned by that work, not the repo): a `/usr/bin/caddy` copy, `/root/spikes`,

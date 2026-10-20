@@ -234,3 +234,41 @@ Judgment calls and fixes made while implementing P2a/P2b/P2c and deploying them 
   missing Docker socket is a host fault (500), a stopped container is a resource state (404/409).
 - **`go` directive raised 1.22 → 1.23** because `coder/websocket` requires it. CI reads
   `go-version-file: go.mod`, so no workflow pin changes; the local toolchain is 1.27.1.
+
+## Phase 3: handlers, helper and runtime adapter (written in a sandbox without a Go toolchain; unverified)
+
+- **Privilege boundary.** The shipped unit cannot start a shell as another user and a shell from its tree could not
+  `sudo` (NoNewPrivileges). Host shells therefore go through a root-side helper, see ADR 0006. This replaces the
+  handoff's "setuid via `syscall.SysProcAttr.Credential`" in the daemon, which cannot work under the unit.
+- **Root needs two switches.** Daemon side: `terminal.allow_root`, `terminal:root`, fresh step-up (re-checked at
+  upgrade, not only at ticket time). Host side: `/etc/codeplo/allow-root`. The mock only models the first set.
+- **Step-up only for `as_root`.** `POST /terminal/ticket` carries `x-step-up: true` in OpenAPI, but the plan and the
+  executable mock require a fresh step-up only for a root shell. Followed the plan and the mock.
+- **Failures after the ticket is spent close the socket, they do not return HTTP errors.** The handler completes the
+  upgrade, sends `{type:"error",message}` and closes 1008, matching the mock; a plain HTTP error reaches the
+  browser as an anonymous 1006. Failures before the ticket check (module disabled, runtime or helper not wired,
+  unauthenticated) stay HTTP, as does the ticket endpoint itself (409 `operator_missing`, 409 container not
+  running, 403 root disabled, 422 validation).
+- **Session audit is fail-closed.** `Store.Open` and the `terminal.session_opened` audit event are two
+  transactions, not one. If the audit write fails the session row is closed and no shell starts. A single
+  transaction would need `Store.Open` to accept a `*sql.Tx`; deferred.
+- **`recorded` is always false.** `terminal.record_sessions` exists as a setting, but no transcript writer exists,
+  so the API never claims a recording.
+- **Tickets are bound to Origin** as well as user, target and resource; a ticket burned by a failed binding check
+  stays burned. Origin on the upgrade is checked twice: the ticket binding and `websocket.Accept`'s Host match.
+- **Container shell command is a fixed constant** (`bash -l` if present, else `sh`); nothing from the request
+  reaches it. `as_user` is reported as `container`; the mock shows `app`.
+- **Logs.** Container resolved by the `codeplo.resource` label only (no resources table before P4); no running
+  container is 404 `not_found` for the log stream and 409 for the terminal ticket. Per-line `id:` is the line's
+  unix-nanosecond timestamp, `Last-Event-ID` resumes after it with no tail replay, and the first line after a
+  resume is skipped if Docker repeats it. The stream never blocks the Docker reader: a 512-line queue drops the
+  oldest line and emits one visible "N lines dropped" line. A clean runtime EOF sends `event: end`; a runtime
+  error closes silently so the browser reconnects.
+- **Docker adapter limits.** TTY exec only (non-tty returns an error); `Resolve` picks the newest running
+  container when a blue/green swap briefly leaves two; `Wait` polls `/exec/{id}/json` every 150 ms; closing the
+  attach connection relies on the pty hang-up to end the shell and does not call a kill endpoint.
+- **Installer.** Now ships and verifies seven artefacts (adds `codeplo-pty.socket`, `codeplo-pty@.service`), enables
+  the socket, and writes a `SupplementaryGroups=docker` drop-in only when the `docker` group exists. Fixtures that
+  serve a fake release must carry seven checksum entries.
+- **Not touched:** the frontend. `TerminalPane` already sends binary PTY bytes and text JSON control frames and the
+  Vite proxy already forwards WebSockets.
