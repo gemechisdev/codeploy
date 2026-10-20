@@ -1,0 +1,42 @@
+# Line endings are load-bearing here, not cosmetic:
+# - gofmt flags any .go file with CRLF, so the lint and CI drift checks fail
+# - deploy/install.sh and the systemd unit must stay LF to run on a Linux host
+# - the generators write LF, so a CRLF checkout shows a phantom "modified" file
+# Default: normalize text to LF in the repository, keep working trees platform-safe.
+* text=auto eol=lf
+
+# Checkouts must be LF on every platform, Windows included.
+*.go        text eol=lf
+*.sql       text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.json      text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.md        text eol=lf
+*.py        text eol=lf
+*.sh        text eol=lf
+*.service   text eol=lf
+Makefile    text eol=lf
+go.mod      text eol=lf
+go.sum      text eol=lf
+
+# Never run text conversion (or EOL auditing) over build output or assets.
+bin/*       binary
+*.exe       binary
+*.test      binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.webp      binary
+*.woff      binary
+*.woff2     binary
+*.zip       binary
+*.db        binary
+*.sqlite    binary
