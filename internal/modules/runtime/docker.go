@@ -371,10 +371,63 @@ func (e *dockerExec) Wait(ctx context.Context) (int, error) {
 	}
 }
 
-// Close drops the attach connection. With a tty this closes the pty master inside the container, which sends
-// the shell SIGHUP, so a closed browser tab ends the shell. Safe to call more than once.
+// ttyEOF is the terminal's own "this session is over" gesture, sent in band before hanging up: ^U discards
+// whatever the user had half-typed so teardown cannot execute a partial command, then ^D twice, which makes a
+// POSIX shell read end of input and exit.
+const ttyEOF = "\x15\x04\x04"
+
+// Close ends the session and drops the attach connection.
+//
+// Hanging the connection up is not enough, and none of the alternatives were assumed — they were measured against
+// Docker 29.1.3:
+//
+//   - closing the attach socket left /bin/sh running in the container, because the daemon keeps the pty master
+//     open. Every closed browser tab would have leaked a live shell;
+//   - half-closing the write side does not help either: a tty exec has no stdin pipe for EOF to travel on;
+//   - POST /exec/{id}/kill is not registered on this daemon at any API version — /exec/{id}/resize on the same
+//     prefix answers 200 and the kill body is the router's own "page not found", so the route is genuinely absent.
+//
+// So Close sends the terminal's EOF gesture first, which is what actually ends a shell, then asks the daemon to
+// kill the exec for daemons and commands that do support it, and finally drops the connection. Safe to call more
+// than once.
 func (e *dockerExec) Close() error {
 	var err error
-	e.once.Do(func() { err = e.conn.Close() })
+	e.once.Do(func() {
+		_, _ = e.conn.Write([]byte(ttyEOF))
+		if uc, ok := e.conn.(*net.UnixConn); ok {
+			_ = uc.CloseWrite()
+		}
+		err = e.kill()
+		_ = e.conn.Close()
+	})
 	return err
+}
+
+func (e *dockerExec) kill() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://docker/exec/"+e.id+"/kill", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := e.d.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusConflict:
+		return nil // stopped, or already stopped: there is nothing left to kill
+	case http.StatusNotFound:
+		// Measured on Docker 29.1.3 (API 1.52): this daemon does not register the kill route at any API version,
+		// while /exec/{id}/resize on the same prefix answers 200. The in-band EOF above is what ends a shell here,
+		// so a missing route is tolerated. It is only tolerated because that write happened: without a way to end
+		// the session this would be a leak, not a no-op.
+		if _, ok := e.conn.(*net.UnixConn); !ok {
+			return fmt.Errorf("docker exec kill: %s, and the attach cannot be half-closed on this transport", resp.Status)
+		}
+		return nil
+	default:
+		return fmt.Errorf("docker exec kill: %s", resp.Status)
+	}
 }
