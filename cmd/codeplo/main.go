@@ -21,6 +21,7 @@ import (
 	"github.com/codeplo/codeplo/internal/authn"
 	"github.com/codeplo/codeplo/internal/config"
 	"github.com/codeplo/codeplo/internal/modules/hardening"
+	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/platform"
 	"github.com/codeplo/codeplo/internal/store"
 )
@@ -31,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list]")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -41,6 +42,11 @@ func main() {
 }
 
 func run(cmd string, args []string) error {
+	// pty-helper runs as root, one process per connection, started by codeplo-pty@.service. It must not touch the
+	// data directory or the database: its whole policy is the peer-uid check and terminal.Authorize.
+	if cmd == "pty-helper" {
+		return terminal.ServeHelperStdin(terminal.DefaultHelperPolicy())
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
