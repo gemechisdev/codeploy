@@ -2,8 +2,9 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIST = new URL('../dist', import.meta.url).pathname;
+const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const ASSETS = join(DIST, 'assets');
 if (!existsSync(ASSETS)) { console.error('dist/assets not found: run `npm run build` first'); process.exit(2); }
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');

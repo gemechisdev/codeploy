@@ -1,8 +1,9 @@
 // Fails if dist/ references a third-party host (brief: no external hosts at runtime).
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIST = new URL('../dist', import.meta.url).pathname;
+const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 if (!existsSync(DIST)) { console.error('dist/ not found: run `npm run build` first'); process.exit(2); }
 
 // Hosts that may appear as inert strings (XML namespaces, spec URLs inside library comments, docs placeholders).

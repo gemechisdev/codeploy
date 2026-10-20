@@ -1,11 +1,15 @@
 // Grep guards from brief section 9.4. Runs as part of `npm run lint`.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const SRC = new URL('../src', import.meta.url).pathname;
+// URL.pathname, not fileURLToPath, yields "/C:/..." on Windows and every fs call then fails on "C:\C:\...".
+const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const files = [];
 (function walk(d) { for (const n of readdirSync(d)) { const p = join(d, n); statSync(p).isDirectory() ? walk(p) : ['.ts', '.tsx'].includes(extname(p)) && files.push(p); } })(SRC);
-const rel = (f) => relative(SRC, f);
+// forward slashes on every host: path.relative yields "mock\server.ts" on Windows, and the prefix tests below
+// are written with '/' because that is what the rule names and the source tree use.
+const rel = (f) => relative(SRC, f).replaceAll('\\', '/');
 const isTest = (f) => /__tests__|\.test\./.test(f);
 const inMock = (f) => rel(f).startsWith('mock/');
 const inApi = (f) => rel(f).startsWith('api/') && !rel(f).startsWith('api/schema');

@@ -1,8 +1,9 @@
 // A `live` production build must contain zero mock code (brief 4.2). Run after `VITE_API_MODE=live npm run build`.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIST = new URL('../dist', import.meta.url).pathname;
+const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 if (!existsSync(DIST)) { console.error('dist/ not found'); process.exit(2); }
 // Strings that only exist in src/mock/** (seeds, demo credentials, mock internals).
 const MARKERS = ['owner@example.com', 'demo-password-change-me', 'demo-setup-token', '__codeploMock', 'MockEventSource', 'MockWebSocket', 'Injected server error', 'mock shell: no real commands run', 'DemoToolbar'];
