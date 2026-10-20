@@ -1,7 +1,7 @@
 # Types only: handlers stay hand-written (see docs/DECISIONS.md); the generated models give compile-time
 # agreement with api/openapi.yaml and make spec drift visible in CI.
 package: oapigen
-output: internal/api/oapigen/models.gen.go
+output: models.gen.go
 generate:
   models: true
 output-options:
