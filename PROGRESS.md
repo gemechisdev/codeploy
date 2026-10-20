@@ -3,7 +3,9 @@
 Status: **Phase 2 (P2a edge + audit + safe fixes, P2b reversible firewall, P2c guarded SSH) is
 implemented, compiled, race-tested and deployed on a real systemd host.** P2c stays behind
 `hardening.apply_tier3`, default off, as the plan requires until its VM matrix passes.
-Phase 3 (terminal & logs) is next and not started.
+Phase 3 (terminal & logs) is in progress: foundation (deps, `terminal_sessions`, settings
+seeds, frozen runtime port) built and gate-verified; shells, tickets, handlers and the Docker
+adapter are not.
 Evidence table below; full detail in `TEST_REPORT.md`, judgment calls in `docs/DECISIONS.md`.
 
 ## Phase 2 — what was built
@@ -39,6 +41,28 @@ Evidence table below; full detail in `TEST_REPORT.md`, judgment calls in `docs/D
 | Panel HTTPS on a real public domain | **NOT RUN** — needs DNS pointing at a public host; cert issuance is exercised against Caddy's internal issuer in the spike |
 | Idle RSS vs Profile A ≤ 50 MB | **UNMET** (78.8 MB measured on Windows; report, don't tune) |
 
+## Phase 3 — foundation (2026-10-21), built and gate-verified
+
+| Area | Files | What it does |
+|---|---|---|
+| Deps | `go.mod` (`go` 1.23, CI reads the version from it) | `github.com/creack/pty` v1.1.24 (host PTY), `github.com/coder/websocket` v1.8.15 (WS upgrade/frames) |
+| Migration | `internal/store/migrations/0003_terminal.sql` | `terminal_sessions` (+ recent/open indexes), seeds `terminal.max_sessions_per_user=3`, `terminal.record_sessions=false` |
+| Runtime port | `internal/modules/runtime/runtime.go` | frozen P3 interface (`Available`, `Resolve`, `Logs`, `Exec`) plus `Container`, `LogOptions/LogLine/LogFunc`, `ExecStream`, `LabelResource`; the API layer never touches the Docker Engine API |
+| Terminal core | `internal/modules/terminal/terminal.go` | `Config` from settings, `TicketTTL`, `Session` + contract-shaped `JSON()`, `Store` (`Open` with in-tx per-user concurrency check, `Close` keeping the first end reason, keyset `List`, `Recover` for rows left open by a crash) |
+| API surface | `internal/api/router.go` | `Server.Runtime` / `Server.Terminals` fields, wired by the daemon like `Server.Edge`; nil means "not available", never a fake success |
+
+Verified: `go build`, `go vet`, `gofmt -l`, `go test -race -count=1 ./...` — 12 packages ok,
+0 skips; `test/authz` still proves the route set equals OpenAPI (terminal routes are stubs
+until the handlers land). New tests: `internal/modules/terminal/terminal_test.go` (7 cases —
+settings defaults/overrides, concurrency limit + slot release, first end reason wins, keyset
+paging with no skipped row, crash recovery idempotence, contract object shape).
+One real bug found and fixed while gating: `Store.List` returned the *next* page's first id as
+the cursor, which skipped a row.
+
+Remaining Phase 3 tasks: tickets (`ticket.go`), host PTY (`host*.go`), Docker runtime adapter
+(`runtime/docker.go`), the WS/SSE handlers and daemon wiring, the frontend wiring, and WSL
+runtime verification against real Docker + systemd.
+
 ## Exit criteria (§6.2)
 
 **P0** — threat model + ADRs met; Docker spike met; **Caddy zero-drop unmet**; CI green on a
@@ -68,8 +92,84 @@ passes**, which is the plan's own gate.
 - `/resources/{id}/domains` does not check the resource exists (no `resources` table until P4).
 - TOTP replay guard in-memory; sqlc scaffolded but unused; `RouteDef.NoCSRF` declared-unused.
 
+## Handoff brief — remaining Phase 3 work (for the next agent)
+
+Foundation is committed and green; nothing in it needs re-doing. `internal/modules/terminal/terminal.go`
+and `internal/modules/runtime/runtime.go` are the types everything else compiles against — read those
+two files first, then `docs/DECISIONS.md` "Phase 3" (8 decisions already made there: migration number,
+denormalized session rows, the two new settings, in-tx concurrency check, first-end-reason-wins,
+crash recovery, the `codeplo.resource` label, frozen port).
+
+**Tasks left, in dependency order**
+1. `internal/modules/terminal/ticket.go` — single-use tickets: `Issue(user, target, resourceID, asRoot)` →
+   ticket bound to user + target + resource + Origin, TTL `terminal.TicketTTL` (30 s), mark-used-on-consume,
+   in-memory map is correct (a restart invalidates a 30 s window). Tests: expiry, single use, wrong target,
+   wrong user, wrong origin.
+2. `internal/modules/terminal/host.go` + `host_linux.go` / `host_other.go` — PTY via `creack/pty` as the
+   operator user (setuid via `syscall.SysProcAttr.Credential`), refuse when no operator is configured,
+   `TERM=xterm-256color`, process-group kill on close (`syscall.Kill(-pgid, SIGKILL)`), idle timer reset by
+   input, optional transcript under the record setting. Non-Linux build must compile and refuse.
+3. `internal/modules/runtime/docker.go` — the `Runtime` implementation over the Docker Engine API unix
+   socket, reusing `internal/modules/edge/client.go` (transport) and `test/spikes/docker_spike_test.go`
+   (endpoint shapes, hijacked attach). `Logs` = `GET /containers/{id}/logs?stdout&stderr&tail&since&follow&timestamps`
+   demultiplexed (8-byte header frames when not a tty); `Exec` = `POST /containers/{id}/exec` (Tty true) then
+   `POST /exec/{id}/attach` hijacked; `Resize` = `POST /exec/{id}/resize`.
+4. `internal/api/handlers_terminal.go` (+ router.go, cmd/codeplod/main.go wiring — **only this task may edit
+   those three**) — `POST /terminal/ticket`, `GET /terminal/sessions`, and the two WS upgrades via
+   `coder/websocket`. Implemented routes must be added to `Routes()`; `router.go:58` already drops the
+   matching generated stub, and `test/authz/routes_test.go` fails if the set drifts from OpenAPI.
+5. `internal/api/handlers_logs.go` — `GET /resources/{id}/logs` SSE: raw line per `data:` with an ISO
+   timestamp prefix (that is what `web/src/api/hooks/logs.ts:48` parses), `id:` per line so the browser's
+   auto-reconnect sends `Last-Event-ID` and resumes with `since=`; bounded channel → drop-oldest with a
+   visible "... N lines dropped" line, never block the runtime reader (backpressure is `LogFunc` returning error).
+6. Runtime verification in WSL against real Docker + systemd (host shell as a real sudo operator, container
+   shell, close-the-tab-kills-PTY, audit rows, log resume) — the §6.2 P3 exit criteria.
+7. Frontend: `TerminalPane`/`TerminalPage` and the log viewer already exist and are mock-driven; the work is
+   pointing them at the real endpoints (ticket → WS URL with `?ticket=`, control frames as text JSON, PTY
+   bytes as binary) and re-running the frontend gates.
+
+**Contract facts** (all verified in `api/openapi.yaml` + the executable mock)
+- `POST /terminal/ticket`: `x-permission terminal:container`, `x-step-up: true`; request
+  `{target: host|container, resource_id: string|null, as_root: bool}`; 201 `{ticket, expires_at, idle_timeout_s}`.
+- `GET /terminal/host`, `GET /terminal/resources/{id}`: WS, `?ticket=`. **Binary frames = PTY bytes both
+  ways; text frames = JSON control** — in `{type:"resize",cols,rows}`, out `{type:"exit",code}` |
+  `{type:"error",message}`. Mock semantics to match: `web/src/mock/install.ts:215-262`, ticket rules and the
+  operator-missing 409 in `web/src/mock/handlers/platform.ts:140-165`, sessions list at `:166`.
+- `GET /terminal/sessions`: `terminal:host`, page `{items, next_cursor}`, row = `TerminalSession`
+  (`id,user_email,ip,target,target_name,as_user,is_root,started_at,ended_at|null,recorded`) —
+  `terminal.Session.JSON()` already matches it exactly (a test asserts the key set).
+- `GET /resources/{id}/logs`: SSE, `resource:read`, params `tail`, `since`.
+- Audit actions: `terminal.ticket_issued`, `terminal.session_opened` (target_type `terminal`).
+- Permissions already registered and role-mapped (owner all, admin minus `terminal:root`, deployer/viewer
+  none) — no `internal/authz` change needed; `requireStepUp` is at `internal/api/session.go:218`.
+
+**Ground rules carried through P2, still binding:** smallest fix; never weaken a test; never report a skipped
+check as a pass; "tamper-evident", not "immutable"; RSS is reported, not tuned; judgment calls go in
+`docs/DECISIONS.md`; PROGRESS.md updated before every commit; one commit per unit of work; push when the local
+gates pass so CI runs the slow ones.
+
+**Gates and host quirks on this machine**
+- `gofmt -l .` empty; `go build ./...`; `go vet ./...` and `go vet -tags spike ./...`;
+  `CC="C:/tools/winlibs/mingw64/bin/gcc.exe" go test -race -count=1 ./...` (12 packages ok as of the foundation).
+- `make gen` must stay idempotent (md5 compare `models.gen.go`, `stubs_gen.go`, `schema.d.ts`); frontend gates
+  with Node v20.20.2 (`npm run lint`, `vite build`, `check:mock-free`, `check:external`, `check:size`) and
+  vitest under Node v22.23.3 with `--fileParallelism=false`; both under `/c/Users/hp/.config/herd/bin/`.
+- WSL is a flaky test host: it tears the distro down after ~8 min idle, wiping `/tmp`. Run each test sequence as
+  **one** command, or hold it open with a background `wsl -d Ubuntu -u root -- sleep 900`, and put logs under
+  `/root`. Root sudo password `Hunde123`. Never `pkill -f <pattern>` when the pattern also appears in your own
+  command line — it kills your shell mid-run. A *running service is shared state*: stop and disable fixture
+  units before running anything that probes `:80`/`:443`.
+- Left on WSL from the P2/P3 sessions (owned by that work, not the repo): a `/usr/bin/caddy` copy, `/root/spikes`,
+  `/root/spikeC.log`, `/root/codeplo-fixture`.
+
 ## Next — Phase 3 (terminal & logs)
 
-Host PTY as the operator user with step-up for root, container shell over Docker exec,
-single-use WS tickets, `terminal_sessions` audit rows, SSE container + deployment logs with
-backpressure. Exit criteria in §6.2 P3; tasks tracked per phase in the plan.
+See the handoff brief above: tickets → host PTY → Docker runtime adapter → WS + SSE handlers +
+daemon wiring → WSL runtime verification → frontend wiring, then the full gate and §6.2 P3
+exit criteria (host and container shells in the browser, refusal without an operator identity,
+root off by default and step-up-gated when on, close-the-tab ends the PTY, an audit row per
+session, logs with backpressure that survive reconnects).
+
+Phase 4 (projects & deployments) follows P3 in the plan's order and now owns migration
+`0004_workloads.sql`; the `runtime.Runtime` port and the `codeplo.resource` label are the
+interfaces it builds on.

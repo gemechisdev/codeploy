@@ -1,6 +1,6 @@
 module github.com/codeplo/codeplo
 
-go 1.22
+go 1.23
 
 require (
 	github.com/go-chi/chi/v5 v5.1.0
@@ -13,6 +13,8 @@ require (
 
 require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
+	github.com/coder/websocket v1.8.15 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect

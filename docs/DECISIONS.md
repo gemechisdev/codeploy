@@ -203,3 +203,34 @@ Judgment calls and fixes made while implementing P2a/P2b/P2c and deploying them 
   the installer fixture had left `codeplo-caddy` *enabled* on the VM; it owned `:80`/`:443` and
   answered the spike's requests. The spike passes with the ports free — the fixture now cleans up
   after itself, and WSL's 8-minute idle teardown means a test run must not span two commands.
+
+## Phase 3 — terminal & logs (2026-10-21)
+
+- **`0003_terminal.sql` takes migration 0003.** The plan names P4's table set
+  `0003_workloads.sql`; P3 is built first here, so P4 becomes `0004_workloads.sql`. Goose
+  versions are sequential and irreversible-in-order — the file name is the only thing that moves.
+- **`terminal_sessions` denormalizes `user_email` and carries no foreign key**, exactly like
+  `audit_events`. Session history must survive the user it belongs to being removed; an FK would
+  either block that removal or cascade-delete the history.
+- **Two settings invented for the contract's "concurrency limit" and "opt-in recording"**:
+  `terminal.max_sessions_per_user=3` and `terminal.record_sessions=false`. Three is enough for one
+  browser plus a second device and bounds a fork of shells; recording defaults off because a
+  transcript contains everything the operator types, including secrets, and no viewer exists yet.
+- **The concurrency check is inside the insert transaction.** Two simultaneous WebSocket upgrades
+  reading "2 of 3 open" then both inserting would silently exceed the limit; SQLite's
+  `_txlock=immediate` makes the count-then-insert pair atomic, so the handler cannot get it wrong.
+- **`Store.Close` keeps the first end reason.** Idle timeout, process exit and socket close all
+  race to close a session; the truthful one is what actually ended it, and the later write would
+  rewrite history.
+- **Rows left open by a crash are closed at daemon start (`Store.Recover`).** Otherwise a killed
+  daemon permanently spends that user's quota and the panel shows a shell nobody can close.
+  Same spirit as P4's "non-terminal deployments become interrupted on boot".
+- **`codeplo.resource=<id>` is the P3 container label.** The resources table arrives in P4, so
+  the runtime resolves a resource to a container purely by label; P4 must stamp it (the plan
+  already mandates `codeplo.deployment=<id>` alongside). Recorded so P4 does not "discover" a
+  second convention.
+- **`runtime.Runtime` is frozen at four methods** (`Available`, `Resolve`, `Logs`, `Exec`).
+  `ErrUnavailable` and `ErrNoContainer` are distinct because they map to different statuses: a
+  missing Docker socket is a host fault (500), a stopped container is a resource state (404/409).
+- **`go` directive raised 1.22 → 1.23** because `coder/websocket` requires it. CI reads
+  `go-version-file: go.mod`, so no workflow pin changes; the local toolchain is 1.27.1.

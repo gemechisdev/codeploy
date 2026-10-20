@@ -21,6 +21,8 @@ import (
 	"github.com/codeplo/codeplo/internal/jobs"
 	"github.com/codeplo/codeplo/internal/modules"
 	"github.com/codeplo/codeplo/internal/modules/edge"
+	"github.com/codeplo/codeplo/internal/modules/runtime"
+	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/webui"
 )
 
@@ -34,18 +36,22 @@ type RouteDef struct {
 }
 
 type Server struct {
-	DB      *sql.DB
-	Key     []byte
-	Bus     *events.Bus
-	Reg     *modules.Registry
-	Jobs    *jobs.Queue
-	Edge    *edge.Reconciler // wired by the daemon when the edge module is enabled; nil otherwise
-	Started time.Time
-	Version string
-	Commit  string
-	BuiltAt string
-	lim     *limiter
-	replay  *authn.ReplayGuard
+	DB   *sql.DB
+	Key  []byte
+	Bus  *events.Bus
+	Reg  *modules.Registry
+	Jobs *jobs.Queue
+	Edge *edge.Reconciler // wired by the daemon when the edge module is enabled; nil otherwise
+	// Runtime and Terminals are the P3 ports; both stay nil when the daemon cannot reach the wiring, and the
+	// handlers answer 500 rather than pretending a shell is available.
+	Runtime   runtime.Runtime
+	Terminals *terminal.Store
+	Started   time.Time
+	Version   string
+	Commit    string
+	BuiltAt   string
+	lim       *limiter
+	replay    *authn.ReplayGuard
 }
 
 func New(db *sql.DB, key []byte, version, commit, built string) *Server {
