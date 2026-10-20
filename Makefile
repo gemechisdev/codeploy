@@ -31,3 +31,18 @@ build: web
 
 run:
 	CODEPLO_DATA_DIR=$${CODEPLO_DATA_DIR:-./.data} go run ./cmd/codeplod
+
+# dist: the exact artefact set deploy/install.sh downloads, plus the checksums.txt it verifies.
+# The GitHub release job is a P9 scaffold, so this target is the only producer until CI signs and publishes.
+# `sha256sum` output is GNU two-space with LF endings, which is what the installer's grep accepts (see DECISIONS.md).
+DIST_ARCHS := amd64 arm64
+dist: web
+	rm -rf dist && mkdir -p dist
+	@for a in $(DIST_ARCHS); do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplod_linux_$a ./cmd/codeplod || exit 1; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplo_linux_$a ./cmd/codeplo || exit 1; \
+	done
+	cp deploy/codeplod.service deploy/caddy/codeplo-caddy.service dist/
+	cp deploy/caddy/bootstrap.json dist/caddy-bootstrap.json
+	cd dist && sha256sum codeplod_linux_* codeplo_linux_* codeplod.service codeplo-caddy.service caddy-bootstrap.json > checksums.txt
+	@echo "dist/ contains $(shell ls dist | wc -l) files; upload all of them to the release for the installer to verify"

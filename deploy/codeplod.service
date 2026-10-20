@@ -8,6 +8,9 @@ User=codeplo
 Group=codeplo
 Environment=CODEPLO_DATA_DIR=/var/lib/codeplo
 Environment=CODEPLO_LISTEN=127.0.0.1:7443
+# Operator-tunable settings (for example CODEPLO_ACME_EMAIL, the certificate contact address) live here; the
+# leading - keeps the service starting on hosts that have no env file yet.
+EnvironmentFile=-/etc/default/codeplod
 ExecStart=/usr/local/bin/codeplod
 Restart=on-failure
 RestartSec=3

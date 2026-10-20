@@ -1,0 +1,5 @@
+{
+  "admin": {
+    "listen": "unix//run/codeplo/caddy-admin.sock|0660"
+  }
+}

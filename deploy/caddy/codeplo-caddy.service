@@ -1,0 +1,37 @@
+[Unit]
+Description=codeplo managed Caddy edge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Runs as root: binds :80/:443 and owns the ACME account and certificate store. Group=codeplo so the
+# admin socket it creates (0660, per the rendered config) is reachable by codeplod, which runs as codeplo.
+User=root
+Group=codeplo
+Type=simple
+# Sane default config path; overridable by the environment file below.
+Environment=CODEPLO_CADDY_CONFIG=/etc/codeplo/caddy-bootstrap.json
+# The reconciler owns the routes from the first reconcile onward; this file only holds the config path.
+EnvironmentFile=-/etc/default/codeplo-caddy
+# Certificates live under the panel's Caddy data dir so the reconciler can read their status.
+Environment=XDG_DATA_HOME=/var/lib/codeplo/caddy
+# Private runtime directory that holds the admin unix socket (/run/codeplo/caddy-admin.sock).
+RuntimeDirectory=codeplo
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/caddy run --config ${CODEPLO_CADDY_CONFIG} --environ
+# No ExecReload: the file on disk is the admin-only bootstrap, so `systemctl reload` would load it and wipe
+# every route the reconciler pushed. Config changes go through the admin API (/load) instead.
+# Always up: the reconciler supervises this unit (systemctl restart codeplo-caddy) when the API is unreachable.
+Restart=always
+RestartSec=3
+# No StateDirectory: systemd chowns a state directory to the unit's own User, and this unit runs as root while
+# codeplod.service (User=codeplo) claims StateDirectory=codeplo. Claiming it here would take /var/lib/codeplo
+# away from the panel and make its unix socket bind fail with EACCES. The installer creates the data dir.
+ReadWritePaths=/var/lib/codeplo/caddy
+LimitNOFILE=1048576
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
