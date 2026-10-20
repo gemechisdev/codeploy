@@ -44,14 +44,16 @@ type Server struct {
 	Edge *edge.Reconciler // wired by the daemon when the edge module is enabled; nil otherwise
 	// Runtime and Terminals are the P3 ports; both stay nil when the daemon cannot reach the wiring, and the
 	// handlers answer 500 rather than pretending a shell is available.
-	Runtime   runtime.Runtime
-	Terminals *terminal.Store
-	Started   time.Time
-	Version   string
-	Commit    string
-	BuiltAt   string
-	lim       *limiter
-	replay    *authn.ReplayGuard
+	Runtime    runtime.Runtime
+	Terminals  *terminal.Store
+	Tickets    *terminal.Tickets // single-use WebSocket tickets, in memory
+	HostShells terminal.Spawner  // privileged PTY helper client; nil until wired
+	Started    time.Time
+	Version    string
+	Commit     string
+	BuiltAt    string
+	lim        *limiter
+	replay     *authn.ReplayGuard
 }
 
 func New(db *sql.DB, key []byte, version, commit, built string) *Server {
@@ -62,6 +64,7 @@ func New(db *sql.DB, key []byte, version, commit, built string) *Server {
 // Routes returns every route in the API (implemented core routes followed by later-phase stubs).
 func (s *Server) Routes() []RouteDef {
 	defs := append(append(s.coreRoutes(), s.hardeningRoutes()...), s.edgeRoutes()...)
+	defs = append(append(defs, s.terminalRoutes()...), s.logRoutes()...)
 	implemented := map[string]bool{}
 	for _, d := range defs {
 		implemented[d.Method+" "+d.Path] = true

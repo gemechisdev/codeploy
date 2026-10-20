@@ -18,6 +18,8 @@ import (
 	"github.com/codeplo/codeplo/internal/app"
 	"github.com/codeplo/codeplo/internal/config"
 	"github.com/codeplo/codeplo/internal/modules/edge"
+	"github.com/codeplo/codeplo/internal/modules/runtime"
+	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/platform"
 )
 
@@ -67,6 +69,23 @@ func run() error {
 			slog.Warn("initial edge reconcile deferred to supervisor", "err", err)
 		}
 		go rec.Loop(ctx, 30*time.Second)
+	}
+
+	// Container runtime: shared by the container shell (terminal module) and resource logs (deploy module). It
+	// only dials the Docker socket per request, so wiring it never fails when Docker is absent; handlers then
+	// report the runtime as unavailable.
+	if srv.Reg.Enabled(ctx, "terminal") || srv.Reg.Enabled(ctx, "deploy") {
+		srv.Runtime = runtime.NewDocker(envOr("CODEPLO_DOCKER_SOCKET", "/var/run/docker.sock"))
+	}
+	if srv.Reg.Enabled(ctx, "terminal") {
+		srv.Terminals = terminal.NewStore(db)
+		srv.Tickets = terminal.NewTickets(terminal.TicketTTL)
+		srv.HostShells = terminal.HelperSpawner{Socket: envOr("CODEPLO_PTY_SOCKET", "/run/codeplo-pty/pty.sock")}
+		if n, err := srv.Terminals.Recover(ctx); err != nil {
+			slog.Warn("terminal session recovery failed", "err", err)
+		} else if n > 0 {
+			slog.Info("closed terminal sessions left open by a previous run", "count", n)
+		}
 	}
 
 	if tok, issued, err := app.EnsureSetupToken(ctx, db); err != nil {
