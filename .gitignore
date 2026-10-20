@@ -1,0 +1,12 @@
+# Build output: `make build` regenerates these and they go stale against any
+# later source change, so they must not be tracked.
+/bin/
+
+# Windows Python writes this cache next to the working directory when
+# scripts/gen_stubs.py runs through `make gen` on this host.
+/Python/
+
+# Local run state and scratch.
+/var/
+/tmp/
+*.log
