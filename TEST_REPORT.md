@@ -250,3 +250,70 @@ Caddy prerequisite — each exits non-zero before writing anything.
   issuer path was exercised.
 - CI never executed on a runner; RSS still 78.8 MB vs the 50 MB Profile A budget (Windows number).
 - No signed release: `make dist` produces and checksums the artefact set, cosign path untested.
+
+## 12. Phase 3 addendum (terminal & logs, 2026-10-21)
+
+### 12.1 Gates run on this host
+
+- `gofmt -l .` — empty.
+- `go build ./...` (Windows) and `CGO_ENABLED=0 GOOS=linux go build ./...` + `GOOS=linux go vet ./...` — clean.
+  The Linux vet matters: the PTY helper is `//go:build linux` and never compiles in the Windows gate.
+- `CC=gcc go test -race -count=1 ./...` — **13 packages ok, 0 FAIL, 0 skips**; 69 test functions pass in
+  `internal/api`, `internal/modules/terminal` and `internal/modules/runtime`.
+- `go test -race -count=6 -run TestTerminal ./internal/api/` — stable. The first version of the bridge teardown
+  was flaky here (3 of 6 runs failed on Windows file cleanup) and that flake is what exposed defect 4 below.
+- `test/authz/routes_test.go` — still proves the Go route set equals OpenAPI, now including the four terminal
+  routes and `/resources/{id}/logs` as implemented rather than stubbed.
+
+### 12.2 Defects found by testing, and their fixes
+
+1. **The package did not compile**: `Server.moduleOn` was declared twice (`handlers_terminal.go` and
+   `handlers_hardening.go`). Deleted the duplicate; the hardening copy is the one every module gate uses.
+2. **A lost helper connection looked like a clean logout** (`terminal/host.go`): a failed frame read returned
+   exit code 0, so the panel would report "process exited with code 0" for a shell whose socket broke mid-line.
+   Now -1.
+3. **An unbounded `Docker.Resize`** (`runtime/docker.go`): the runtime client deliberately has no overall
+   timeout (a followed log stream is long-lived), so a resize riding on it could stall the browser's input
+   goroutine behind a hung daemon forever. Now a 5 s deadline on that call alone.
+4. **The bridge said goodbye after hanging up** (`api/handlers_terminal.go`): `coder/websocket` closes the raw
+   socket the instant the context a read was issued on is cancelled, so the exit/error frame and the close frame
+   written after `cancel()` never reached the browser — it saw an anonymous 1006 and no exit code. Found because
+   the new idle-timeout test failed, then confirmed by reading the library's `setupReadTimeout`. Fixed by
+   ordering the end: claim the reason once, write the reason in band, close the shell, close the connection with
+   a bounded wait, cancel last; and by skipping both writes when the peer's read has already failed (that was
+   what made teardown take seconds).
+5. **An idle-killed shell was reported as a clean exit**: three goroutines raced to name the end reason, so the
+   pump could overwrite "idle" with "exit". `claim` now lets the first reason win, and only that winner speaks.
+
+### 12.3 What the P3 tests prove (and how)
+
+Tickets: single use, expiry, wrong user/target/resource/Origin, unknown-id sweep, and — at the HTTP seam — that
+a ticket minted for `https://panel.example` is refused from `https://evil.example` *and* leaves no session row.
+Policy: operator-only authorisation, root needing the host flag file; frames: round trip and oversize rejection.
+Runtime: demux of split/partial lines, backpressure stopping the reader, an absurd frame length being refused,
+timestamp-less lines still being delivered, id validation before anything reaches a URL.
+Handlers: the whole ticket rule set (409 `operator_missing`, 422s, 403 root disabled, 403 step-up), replay and
+cross-user refusal, the per-user session limit, a host bridge that moves bytes both ways and ends the session
+row when the tab closes, a container bridge that pushes keystrokes into the exec stdin and turns a text resize
+frame into a tty resize, the idle timeout ending shell + row, audit rows per ticket and per session, and the log
+stream's ids, `Last-Event-ID` resume with no tail replay, drop-oldest accounting and `event: end`.
+
+### 12.4 What Phase 3 did NOT verify
+
+- **Real PTY, real Docker, real systemd.** Every test above uses fakes at the port. Untested against a live
+  host: the helper's `SO_PEERCRED` check under socket activation, whether the socket's mode actually lets the
+  unprivileged `codeplo` daemon traverse `/run/codeplo-pty`, that closing a Docker attach ends the exec (the
+  adapter relies on pty hang-up and never calls `/exec/{id}/kill`), and whether Docker accepts
+  `AttachStderr:true` together with `Tty:true` (it may reject the combination).
+- **The §6.2 P3 runtime matrix** — host shell as a real sudo operator, refusal with no operator, root off by
+  default and step-up-gated when on, close-the-tab leaves no process, container shell, log tail/follow/resume and
+  the dropped-line notice under a genuinely slow reader.
+- **Installer end to end with seven artefacts.** `install.sh` and `make dist` agree in the tree; the WSL
+  installer fixture still serves five and must be updated before that test can pass.
+- **The frontend in live mode.** `TerminalPane` already matches the frame contract and the Vite proxy forwards
+  WebSockets, but no browser has yet driven a real shell. Also unresolved by choice: OpenAPI marks
+  `/terminal/ticket` `x-step-up: true` while the server (per the plan and the mock) requires step-up only for
+  `as_root`; the UI must not start prompting for a code on every ordinary shell without a decision here.
+- **Session-limit + audit in one transaction.** `Store.Open` and the audit write are two transactions; the
+  handler fails closed if the audit write fails, but a crash between them can leave a session row with no audit
+  event. Deferred deliberately, recorded in `docs/DECISIONS.md`.

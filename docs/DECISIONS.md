@@ -272,3 +272,47 @@ Judgment calls and fixes made while implementing P2a/P2b/P2c and deploying them 
   serve a fake release must carry seven checksum entries.
 - **Not touched:** the frontend. `TerminalPane` already sends binary PTY bytes and text JSON control frames and the
   Vite proxy already forwards WebSockets.
+
+## Phase 3 — integration, gate and review fixes (2026-10-21, toolchain present)
+
+The second pass was compiled, formatted and race-tested here. One duplicate `Server.moduleOn`
+(already provided by `handlers_hardening.go`) was deleted; `go mod tidy` moved `coder/websocket`
+and `creack/pty` out of the indirect block; `gofmt -w` fixed the hand-aligned test files.
+
+- **WebSocket teardown order is a protocol question, not a style one.** `coder/websocket` installs
+  `context.AfterFunc(ctx, c.close)` on both the read and the write side, so the *instant* the bridge
+  context is cancelled the raw socket is torn down — any close frame or control frame written after
+  that never reaches the browser, which sees an anonymous 1006/EOF. The bridge therefore ends in a
+  fixed order: claim the reason → write the in-band reason frame → close the shell → send the close
+  frame → cancel. Cancelling is last, and `Close` (which cannot finish while the browser's parked
+  read holds the library's read mutex) is bounded to 1 s so a browser that vanished cannot pin the
+  handler.
+- **Idle timeout: error frame plus normal close, not 1008.** The earlier note in this file claimed
+  1008; the executable mock (`web/src/mock/install.ts:209-213`) sends
+  `{type:"error","message":"Idle timeout: the session was closed"}` and closes 1000 "idle timeout",
+  and `TerminalPane` renders exactly that frame. Since a close code is not dependable here (see
+  above), the in-band frame is the contract and the close reason is a courtesy. `wsFail` still uses
+  1008 — there the socket has no parked reader, and the UI keys "ticket refused" off that code.
+- **One end reason wins, and only its winner speaks to the browser.** The idle timer, the shell exit
+  and the browser's own close all race to end a session. Without the claim, a shell killed by the
+  idle timeout was reported as `{type:"exit",code:0}` — the UI would say the process exited cleanly
+  when the server murdered it.
+- **Nothing is written to a browser that has already stopped reading.** After its read fails the
+  bridge marks the peer gone and skips the reason frame and the close handshake; attempting them
+  was what made teardown take seconds instead of returning.
+- **Helper exit codes: a broken socket is not exit 0.** `terminal/host.go` now reports -1 when the
+  frame read fails, so a lost helper connection cannot look like a clean logout in the panel.
+- **`Docker.Resize` carries its own 5 s deadline.** The runtime client has no overall timeout (a log
+  stream is long-lived by design), so an unbounded resize request could stall the browser's input
+  goroutine behind a hung daemon forever.
+- **Three new seam tests** (`internal/api/terminal_test.go`): the idle timeout really ends the shell,
+  the process and the session row; the container bridge moves keystrokes into the exec stdin, turns
+  a text resize frame into a tty resize and reports the exec exit code; a ticket minted for one
+  Origin is refused from another and leaves no session row.
+- **Still a claim, not a verified fact:** that closing the Docker attach ends the exec. The adapter
+  relies on pty hang-up rather than `POST /exec/{id}/kill`. The idle/close-tab tests use fakes; only
+  the WSL run against real Docker can settle it.
+- **Known residual: no WS keepalive.** A browser that disappears without a close frame leaves the
+  server's read parked until the idle timeout fires (default 900 s), so a shell can outlive its tab
+  for that long. The idle timer is the current safety net; a ping/pong deadline is the fix if the
+  window is judged too wide.
