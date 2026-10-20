@@ -2460,6 +2460,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description module_disabled (step arrives in a later phase) */
+        E501: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: never;
     requestBodies: never;
@@ -2538,6 +2547,7 @@ export interface operations {
                     "application/json": components["schemas"]["TotpEnrollment"];
                 };
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             409: components["responses"]["E409"];
@@ -2566,6 +2576,7 @@ export interface operations {
                     "application/json": components["schemas"]["RecoveryCodes"];
                 };
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             409: components["responses"]["E409"];
@@ -2595,6 +2606,7 @@ export interface operations {
                     "application/json": components["schemas"]["VerifyDomainResult"];
                 };
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             409: components["responses"]["E409"];
@@ -2624,11 +2636,13 @@ export interface operations {
                     "application/json": components["schemas"]["PanelDomainResult"];
                 };
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             409: components["responses"]["E409"];
             422: components["responses"]["E422"];
             429: components["responses"]["E429"];
+            501: components["responses"]["E501"];
         };
     };
     listOperatorCandidates: {
@@ -2649,6 +2663,7 @@ export interface operations {
                     "application/json": components["schemas"]["OperatorCandidates"];
                 };
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             429: components["responses"]["E429"];
@@ -2676,11 +2691,13 @@ export interface operations {
                     "application/json": components["schemas"]["OperatorCandidate"];
                 };
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             409: components["responses"]["E409"];
             422: components["responses"]["E422"];
             429: components["responses"]["E429"];
+            501: components["responses"]["E501"];
         };
     };
     completeSetup: {
@@ -2699,6 +2716,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
             409: components["responses"]["E409"];
@@ -2842,7 +2860,11 @@ export interface operations {
     };
     listUsers: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                /** @description Opaque keyset cursor (last item id); omit for the first page. */
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2924,7 +2946,11 @@ export interface operations {
     };
     listTokens: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                /** @description Opaque keyset cursor (last item id); omit for the first page. */
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4753,6 +4779,7 @@ export interface operations {
             401: components["responses"]["E401"];
             403: components["responses"]["E403"];
             404: components["responses"]["E404"];
+            409: components["responses"]["E409"];
             422: components["responses"]["E422"];
         };
     };
@@ -4860,20 +4887,25 @@ export interface operations {
     };
     streamEvents: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Resume after this event id; newer buffered events are replayed first. */
+                last_event_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Server-sent events (each `data:` line is JSON of this schema) */
+            /** @description Server-sent events. Each event carries `event: <type>` (payload fields per x-events), an `id:` line, and a `data:` line with the payload JSON; non-metrics payloads are extended with `server_now`. Reconnect with `?last_event_id=` to resume. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["EventEnvelope"];
+                    "text/event-stream": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             401: components["responses"]["E401"];

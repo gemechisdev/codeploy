@@ -21,4 +21,5 @@ for p, ops in d['paths'].items():
         perm = o.get('x-permission'); assert perm, (m, p)
         out.append('\t{Method: "%s", Path: "%s", Perm: "%s", Module: "%s"},\n' % (m.upper(), p, perm, mod(p)))
 out.append('}\n')
-open('internal/api/stubs_gen.go', 'w').write(''.join(out))
+# newline="\n" keeps generated Go platform-independent: text-mode writes on Windows would CRLF the file and break gofmt and the CI drift check.
+open('internal/api/stubs_gen.go', 'w', newline='\n').write(''.join(out))

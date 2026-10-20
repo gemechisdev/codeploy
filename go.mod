@@ -7,6 +7,7 @@ require (
 	github.com/pquerna/otp v1.4.0
 	github.com/pressly/goose/v3 v3.22.1
 	golang.org/x/crypto v0.28.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.33.1
 )
 

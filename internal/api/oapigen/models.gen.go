@@ -2387,6 +2387,9 @@ type E422 = Error
 // E429 defines model for E429.
 type E429 = Error
 
+// E501 defines model for E501.
+type E501 = Error
+
 // ListAuditParams defines parameters for ListAudit.
 type ListAuditParams struct {
 	Limit  *int       `form:"limit,omitempty" json:"limit,omitempty"`
@@ -2412,6 +2415,12 @@ type StreamDeploymentLogsParams struct {
 type ListDomainsParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// StreamEventsParams defines parameters for StreamEvents.
+type StreamEventsParams struct {
+	// LastEventId Resume after this event id; newer buffered events are replayed first.
+	LastEventId *string `form:"last_event_id,omitempty" json:"last_event_id,omitempty"`
 }
 
 // ListHardeningRunsParams defines parameters for ListHardeningRuns.
@@ -2470,6 +2479,22 @@ type ConnectContainerTerminalParams struct {
 // ListTerminalSessionsParams defines parameters for ListTerminalSessions.
 type ListTerminalSessionsParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListTokensParams defines parameters for ListTokens.
+type ListTokensParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset cursor (last item id); omit for the first page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset cursor (last item id); omit for the first page.
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
