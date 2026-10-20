@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/codeplo/codeplo/internal/authn"
 	"github.com/codeplo/codeplo/internal/authz"
 	"github.com/codeplo/codeplo/internal/crypto"
+	"github.com/codeplo/codeplo/internal/events"
 	"github.com/codeplo/codeplo/internal/platform"
 )
 
@@ -407,7 +407,7 @@ func (s *Server) systemStatus(w http.ResponseWriter, r *http.Request) {
 		"hostname": h.Hostname, "os": h.OS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(), "ram_total_mb": h.RAMTotalMB,
 		"support_tier": tier, "uptime_s": int(time.Since(s.Started).Seconds()),
 		"metrics": map[string]any{"cpu_percent": 0, "memory_used_mb": h.RAMUsedMB, "memory_total_mb": h.RAMTotalMB, "daemon_rss_mb": h.DaemonRSSMB,
-			"disk_used_gb": h.DiskUsedGB, "disk_total_gb": h.DiskTotalGB, "container_count": 0, "at": now()},
+			"disk_used_gb": h.DiskUsedGB, "disk_total_gb": h.DiskTotalGB, "net_rx_kbps": 0, "net_tx_kbps": 0, "container_count": 0, "at": now()},
 		"operator_configured": opu != nil, "operator_user": opu, "security_score": 0, "pending_changes": 0, "active_alerts": 0, "server_now": now(),
 	})
 }
@@ -555,19 +555,21 @@ func (s *Server) patchFlags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var changed []string
-	err := s.tx(r, func(tx *sql.Tx) (ev audit.Event, e error) {
+	var appended []audit.Event
+	err := s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
 		for k, v := range b.Flags {
 			on := v.(bool)
 			if cur[k] == on {
 				continue
 			}
-			if _, e = tx.Exec(`UPDATE feature_flags SET enabled=? WHERE key=?`, b2i(on), k); e != nil {
-				return
+			if _, e := tx.Exec(`UPDATE feature_flags SET enabled=? WHERE key=?`, b2i(on), k); e != nil {
+				return audit.Event{}, e
 			}
-			if ev, e = s.rec(r.Context(), tx, r, p, "flag.changed", "flag", k, map[string]any{"enabled": on}); e != nil {
-				return
+			ev, e := s.rec(r.Context(), tx, r, p, "flag.changed", "flag", k, map[string]any{"enabled": on})
+			if e != nil {
+				return audit.Event{}, e
 			}
-			s.published(ev)
+			appended = append(appended, ev)
 			changed = append(changed, k)
 		}
 		return audit.Event{}, nil
@@ -575,6 +577,10 @@ func (s *Server) patchFlags(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		internalErr(w, err)
 		return
+	}
+	// The mock publishes audit events only after commit, one per row.
+	for _, ev := range appended {
+		s.published(ev)
 	}
 	for _, k := range changed {
 		s.Bus.Publish("flag.changed", map[string]any{"key": k})
@@ -666,7 +672,7 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		invalid(w, f)
 		return
 	}
-	err := s.tx(r, func(tx *sql.Tx) (ev audit.Event, e error) {
+	err := s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
 		keys := make([]string, 0, len(b.Values))
 		for k := range b.Values {
 			keys = append(keys, k)
@@ -674,21 +680,35 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(keys)
 		for _, k := range keys {
 			raw, _ := json.Marshal(b.Values[k])
-			if _, e = tx.Exec(`INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, string(raw)); e != nil {
-				return
+			if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, string(raw)); err != nil {
+				return audit.Event{}, err
 			}
 		}
-		return s.rec(r.Context(), tx, r, p, "settings.changed", "settings", "settings", map[string]any{"keys": keys})
+		return s.rec(r.Context(), tx, r, p, "settings.updated", "settings", "server", map[string]any{"keys": keys, "values": b.Values})
 	})
 	if err != nil {
 		internalErr(w, err)
 		return
 	}
+	s.Bus.Publish("flag.changed", map[string]any{"key": "settings"})
 	m, _ := s.settingsMap(r)
 	writeJSON(w, 200, map[string]any{"values": m})
 }
 
 // ---------------- SSE ----------------
+
+// ssePayload mirrors the mock: the event data, extended with server_now (except metrics.sample).
+func ssePayload(ev events.Event) map[string]any {
+	m, _ := ev.Data.(map[string]any)
+	out := map[string]any{}
+	for k, v := range m {
+		out[k] = v
+	}
+	if ev.Name != "metrics.sample" {
+		out["server_now"] = now()
+	}
+	return out
+}
 
 func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
@@ -701,6 +721,14 @@ func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-cache")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
+	writeSSE := func(ev events.Event) {
+		b, _ := json.Marshal(ssePayload(ev))
+		fmt.Fprintf(w, "event: %s\nid: %s\ndata: %s\n\n", ev.Name, ev.ID, b)
+		fl.Flush()
+	}
+	for _, ev := range s.Bus.Since(r.URL.Query().Get("last_event_id")) {
+		writeSSE(ev)
+	}
 	fmt.Fprint(w, ": connected\n\n")
 	fl.Flush()
 	ch, cancel := s.Bus.Subscribe()
@@ -712,14 +740,10 @@ func (s *Server) sse(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-ch:
-			b, _ := json.Marshal(ev.Data)
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Name, b)
-			fl.Flush()
+			writeSSE(ev)
 		case <-tick.C:
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
 		}
 	}
 }
-
-var _ = os.Getpid

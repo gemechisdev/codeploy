@@ -127,6 +127,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TotpEnrollment'
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -156,6 +158,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RecoveryCodes'
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -187,6 +191,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VerifyDomainResult'
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -218,6 +224,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PanelDomainResult'
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -228,6 +236,8 @@ paths:
           $ref: '#/components/responses/E409'
         '429':
           $ref: '#/components/responses/E429'
+        '501':
+          $ref: '#/components/responses/E501'
   /setup/operator-candidates:
     get:
       operationId: listOperatorCandidates
@@ -243,6 +253,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperatorCandidates'
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -270,6 +282,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperatorCandidate'
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -280,6 +294,8 @@ paths:
           $ref: '#/components/responses/E409'
         '429':
           $ref: '#/components/responses/E429'
+        '501':
+          $ref: '#/components/responses/E501'
   /setup/complete:
     post:
       operationId: completeSetup
@@ -291,6 +307,8 @@ paths:
       responses:
         '204':
           description: No content
+        '401':
+          $ref: '#/components/responses/E401'
         '403':
           $ref: '#/components/responses/E403'
         '404':
@@ -442,6 +460,18 @@ paths:
       tags:
       - users
       x-permission: users:manage
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Opaque keyset cursor (last item id); omit for the first page.
       responses:
         '200':
           description: OK
@@ -529,6 +559,18 @@ paths:
       tags:
       - tokens
       x-permission: tokens:manage
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Opaque keyset cursor (last item id); omit for the first page.
       responses:
         '200':
           description: OK
@@ -2479,6 +2521,8 @@ paths:
           $ref: '#/components/responses/E403'
         '404':
           $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
         '422':
           $ref: '#/components/responses/E422'
   /feature-flags:
@@ -2609,13 +2653,21 @@ paths:
           key: string
         flag.changed:
           key: string
+      parameters:
+      - name: last_event_id
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Resume after this event id; newer buffered events are replayed first.
       responses:
         '200':
-          description: Server-sent events (each `data:` line is JSON of this schema)
+          description: 'Server-sent events. Each event carries `event: <type>` (payload fields per x-events), an `id:` line, and a `data:` line with the payload JSON; non-metrics payloads are extended with `server_now`. Reconnect with `?last_event_id=` to resume.'
           content:
             text/event-stream:
               schema:
-                $ref: '#/components/schemas/EventEnvelope'
+                type: object
+                additionalProperties: true
         '401':
           $ref: '#/components/responses/E401'
         '403':
@@ -5846,6 +5898,12 @@ components:
             $ref: '#/components/schemas/Error'
     E429:
       description: rate_limited (Retry-After header)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E501:
+      description: module_disabled (step arrives in a later phase)
       content:
         application/json:
           schema:

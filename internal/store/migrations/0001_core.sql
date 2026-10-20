@@ -41,8 +41,7 @@ INSERT OR IGNORE INTO setup_state(id, step) VALUES (1, 'token');
 INSERT OR IGNORE INTO roles(key, name, builtin) VALUES ('owner','Owner',1),('admin','Admin',1),('deployer','Deployer',1),('viewer','Viewer',1);
 INSERT OR IGNORE INTO settings(key, value) VALUES
  ('terminal.allow_root','false'),('terminal.idle_timeout_s','900'),('retain_images','5'),('observation_window_s','60'),
- ('step_up_window_s','300'),('hardening_revert_window_s','120'),('disk_preflight_threshold_gb','5'),('session_ttl_h','12'),
- ('build_concurrency','1');
+ ('step_up_window_s','300'),('hardening_revert_window_s','300'),('disk_preflight_threshold_gb','2'),('session_ttl_h','12');
 INSERT OR IGNORE INTO feature_flags(key, description, enabled, release_gated) VALUES
  ('hardening.apply_tier2','Allow applying the reversible default-deny firewall (Tier 2). Release-gated: enable only after the VM fault-injection matrix passes.',0,1),
  ('hardening.apply_tier3','Allow applying guarded SSH hardening (Tier 3). Release-gated; plan-only by default.',0,1),
@@ -50,15 +49,15 @@ INSERT OR IGNORE INTO feature_flags(key, description, enabled, release_gated) VA
  ('deploy.static','Static site hosting served directly by Caddy.',0,0),
  ('registry_pull_hook','Registry-pull deploy hook for GitHub Actions.',1,0);
 INSERT OR IGNORE INTO modules(key, name, description, enabled, core, version, phase, ord) VALUES
- ('hardening','Host hardening','Audit, safe fixes, reversible firewall, guarded SSH.',1,1,'0.1.0','P2',1),
- ('edge','Edge (Caddy)','Managed Caddy, automatic HTTPS, domains.',1,1,'0.1.0','P2',2),
- ('terminal','Terminal','Host and container shells in the browser.',1,0,'0.1.0','P3',3),
- ('deploy','Deployments','Deployment engine, rollout, rollback.',1,1,'0.1.0','P4',4),
- ('git','Git & CI/CD','Deploy keys, webhooks, registry-pull hook.',1,0,'0.1.0','P5',5),
- ('monitor','Monitoring','Metrics history and alert evaluation.',0,0,'0.1.0','P6',6),
- ('notify','Notifications','Telegram, Discord, email and webhook channels.',0,0,'0.1.0','P6',7),
- ('databases','Databases & backups','One-click databases, backups and restore.',0,0,'0.1.0','P6',8),
- ('templates','Templates','Bundled and imported compose templates.',0,0,'0.1.0','P6',9),
- ('extensions','Extensions','Out-of-process extension API.',0,0,'0.1.0','P7',10),
- ('mcp','MCP server','Model Context Protocol server module.',0,0,'0.1.0','P7',11);
+ ('hardening','Host hardening','Audit, safe fixes, reversible firewall, guarded SSH.',1,1,'1.2.0','P2',1),
+ ('edge','Edge (Caddy)','Managed Caddy, automatic HTTPS, domains.',1,1,'1.2.0','P2',2),
+ ('terminal','Terminal','Host and container shells in the browser.',1,0,'1.2.0','P3',3),
+ ('deploy','Deployments','Deployment engine, rollout, rollback.',1,1,'1.2.0','P4',4),
+ ('git','Git & CI/CD','Deploy keys, webhooks, registry-pull hook.',1,0,'1.2.0','P5',5),
+ ('monitor','Monitoring','Metrics history and alert evaluation.',0,0,'1.2.0','P6',6),
+ ('notify','Notifications','Telegram, Discord, email and webhook channels.',0,0,'1.2.0','P6',7),
+ ('databases','Databases & backups','One-click databases, scheduled backups, restore.',0,0,'1.2.0','P6',8),
+ ('templates','Templates','One-click catalog of compose templates.',0,0,'1.2.0','P7',9),
+ ('extensions','Extensions','Out-of-process extension API.',0,0,'1.2.0','P7',10),
+ ('mcp','MCP server','MCP server for AI agents using the same permissions as the API.',0,0,'1.2.0','P7',11);
 -- role_permissions are seeded idempotently from internal/authz (store.Seed); admin edits are never overwritten.
