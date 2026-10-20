@@ -162,7 +162,7 @@ func TestCSRFRejected(t *testing.T) {
 func TestStepUpRequiredThenExpires(t *testing.T) {
 	e := newEnv(t)
 	c, secret := e.bootstrap()
-	newUser := map[string]string{"email": "dev@example.com", "password": "another long passphrase", "role": "developer"}
+	newUser := map[string]string{"email": "dev@example.com", "password": "another long passphrase", "role": "deployer"}
 	if w, b := c.post("/users", newUser); w.Code != 403 || b["code"] != "step_up_required" {
 		t.Fatalf("want step_up_required, got %d %v", w.Code, b)
 	}
