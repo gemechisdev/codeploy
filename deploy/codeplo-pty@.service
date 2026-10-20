@@ -1,0 +1,14 @@
+[Unit]
+Description=codeplo host shell (one per connection)
+
+[Service]
+# Runs as root on purpose: it starts a login shell for the operator (or root, if the host owner created
+# /etc/codeplo/allow-root). It lives outside codeplod.service so the panel keeps NoNewPrivileges and the shell can use sudo.
+User=root
+ExecStart=/usr/local/bin/codeplo pty-helper
+StandardInput=socket
+StandardOutput=null
+StandardError=journal
+# The shell needs the host, so no filesystem sandboxing here; limit what the helper process itself can be abused for.
+NoNewPrivileges=false
+KillMode=control-group

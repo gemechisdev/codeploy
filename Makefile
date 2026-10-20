@@ -42,7 +42,7 @@ dist: web
 		CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplod_linux_$a ./cmd/codeplod || exit 1; \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplo_linux_$a ./cmd/codeplo || exit 1; \
 	done
-	cp deploy/codeplod.service deploy/caddy/codeplo-caddy.service dist/
+	cp deploy/codeplod.service deploy/caddy/codeplo-caddy.service deploy/codeplo-pty.socket 'deploy/codeplo-pty@.service' dist/
 	cp deploy/caddy/bootstrap.json dist/caddy-bootstrap.json
-	cd dist && sha256sum codeplod_linux_* codeplo_linux_* codeplod.service codeplo-caddy.service caddy-bootstrap.json > checksums.txt
+	cd dist && sha256sum codeplod_linux_* codeplo_linux_* codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket 'codeplo-pty@.service' > checksums.txt
 	@echo "dist/ contains $(shell ls dist | wc -l) files; upload all of them to the release for the installer to verify"

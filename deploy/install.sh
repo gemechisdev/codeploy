@@ -20,8 +20,8 @@ if ! [ -x /usr/bin/caddy ] && ! command -v caddy >/dev/null 2>&1; then
   exit 1
 fi
 # Every artefact this installer fetches and verifies, in the order the checksum list is expected to carry them.
-ASSETS=("codeplod_linux_$ARCH" "codeplo_linux_$ARCH" checksums.txt codeplod.service codeplo-caddy.service caddy-bootstrap.json)
-ASSET_RE=" (codeplod_linux_$ARCH|codeplo_linux_$ARCH|codeplod.service|codeplo-caddy.service|caddy-bootstrap.json)\$"
+ASSETS=("codeplod_linux_$ARCH" "codeplo_linux_$ARCH" checksums.txt codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket "codeplo-pty@.service")
+ASSET_RE=" (codeplod_linux_$ARCH|codeplo_linux_$ARCH|codeplod.service|codeplo-caddy.service|caddy-bootstrap.json|codeplo-pty.socket|codeplo-pty@.service)\$"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
@@ -41,13 +41,21 @@ else
 fi
 # Verify every downloaded artefact, including both unit files and the bootstrap config; abort on any mismatch.
 grep -E "$ASSET_RE" checksums.txt | sha256sum -c -
-[ "$(grep -cE "$ASSET_RE" checksums.txt)" -eq 5 ] || { echo "checksums.txt is missing an entry" >&2; exit 1; }
+[ "$(grep -cE "$ASSET_RE" checksums.txt)" -eq 7 ] || { echo "checksums.txt is missing an entry" >&2; exit 1; }
 
 id codeplo >/dev/null 2>&1 || useradd --system --home /var/lib/codeplo --shell /usr/sbin/nologin codeplo
 install -m 0755 "codeplod_linux_$ARCH" /usr/local/bin/codeplod
 install -m 0755 "codeplo_linux_$ARCH" /usr/local/bin/codeplo
 install -m 0644 codeplod.service /etc/systemd/system/codeplod.service
 install -m 0644 codeplo-caddy.service /etc/systemd/system/codeplo-caddy.service
+install -m 0644 codeplo-pty.socket /etc/systemd/system/codeplo-pty.socket
+install -m 0644 "codeplo-pty@.service" "/etc/systemd/system/codeplo-pty@.service"
+# Container shells and resource logs need the Docker socket. Docker group membership is root-equivalent, so it is
+# granted only when Docker is installed, and only through a drop-in the owner can read and remove.
+if getent group docker >/dev/null 2>&1; then
+  install -d -m 0755 /etc/systemd/system/codeplod.service.d
+  printf '[Service]\nSupplementaryGroups=docker\n' > /etc/systemd/system/codeplod.service.d/docker.conf
+fi
 install -d -m 0755 /etc/codeplo
 install -m 0644 caddy-bootstrap.json /etc/codeplo/caddy-bootstrap.json
 # Operator-tunable daemon environment. Shipped commented out: certificate issuance works without a contact
@@ -68,6 +76,8 @@ if ! systemctl enable --now codeplo-caddy; then
   echo "warning: codeplo-caddy did not start; the panel is still reachable over the SSH tunnel below." >&2
   echo "  inspect with: systemctl status codeplo-caddy; journalctl -u codeplo-caddy -n 50" >&2
 fi
+# Host shell helper: socket-activated, one root process per shell, only the codeplo user may connect.
+systemctl enable --now codeplo-pty.socket || echo "warning: codeplo-pty.socket did not start; the host shell stays unavailable." >&2
 systemctl enable --now codeplod
 # The install only counts as done when the panel actually answers. A service that is "active" for a second and
 # then crash-looping would otherwise be reported as installed (systemctl --now does not wait for the failure).

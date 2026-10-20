@@ -21,7 +21,9 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/codeplo
-# P3/P4 will need docker group membership and a PTY helper; widen deliberately when those modules ship.
+# Container access (the docker group, added as a drop-in by install.sh) and the host shell (the
+# socket-activated helper, ADR 0006) stay outside these privileges on purpose: the daemon is unprivileged
+# and asks for both over a socket. Widen anything here only with a written reason.
 
 [Install]
 WantedBy=multi-user.target

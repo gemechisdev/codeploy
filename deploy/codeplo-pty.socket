@@ -1,0 +1,14 @@
+[Unit]
+Description=codeplo host-shell helper socket
+
+[Socket]
+# Only the codeplo service user may connect. The helper re-checks the peer uid with SO_PEERCRED.
+ListenStream=/run/codeplo-pty/pty.sock
+SocketUser=root
+SocketGroup=codeplo
+SocketMode=0660
+DirectoryMode=0750
+Accept=yes
+
+[Install]
+WantedBy=sockets.target
