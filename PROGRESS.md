@@ -59,8 +59,9 @@ paging with no skipped row, crash recovery idempotence, contract object shape).
 One real bug found and fixed while gating: `Store.List` returned the *next* page's first id as
 the cursor, which skipped a row.
 
-The second pass below is now compiled, gated and committed; what remains of Phase 3 is runtime
-verification against real Docker + systemd and the frontend's live-mode pass.
+The second pass below is now compiled, gated and committed, and the container-runtime half of its runtime
+verification is done against real Docker (see "Phase 3 — container runtime verified against real Docker").
+What remains of Phase 3 is the host-shell run on a real systemd and the frontend's live-mode pass.
 
 ## Phase 3 — second pass: built, compiled and gate-verified (2026-10-21)
 
@@ -88,14 +89,47 @@ and — the one that mattered — the WebSocket bridge writing its goodbye *afte
 which `coder/websocket` turns into an anonymous socket death. Details and reasoning are in
 `docs/DECISIONS.md`, "Phase 3 — integration, gate and review fixes".
 
-**Owed:** the §6.2 P3 runtime verification on a real systemd host with Docker — host shell as a real
-sudo operator, refusal with no operator, root off by default and step-up-gated when on (with and
-without `/etc/codeplo/allow-root`), close-the-tab ends the PTY (no leftover process), idle timeout,
-session limit, an audit row per ticket and per session, container shell, log tail/follow/resume across
-a reconnect and the dropped-line notice under a slow reader, and the installer test with seven
-artefacts. Everything above is proven against fakes at the seam, not against a real PTY or daemon.
-Two claims that only that run can settle: closing the attach connection ends the Docker exec, and the
-helper socket's mode lets the unprivileged daemon traverse `/run/codeplo-pty`.
+**Owed:** the §6.2 P3 runtime verification on a real systemd host — host shell as a real sudo operator,
+refusal with no operator, root off by default and step-up-gated when on (with and without
+`/etc/codeplo/allow-root`), close-the-tab ends the PTY (no leftover process), idle timeout, session limit,
+an audit row per ticket and per session, the helper socket's mode letting the unprivileged daemon traverse
+`/run/codeplo-pty`, the dropped-line notice under a slow reader, and the installer test with seven
+artefacts. Spike E (`test/spikes/p3_hostpty_spike_test.go`) is written and compiles under the spike tag but
+**has not been run yet** — it is committed as work-in-progress, not as a pass.
+
+## Phase 3 — container runtime verified against real Docker (2026-10-21)
+
+Spike D (`test/spikes/p3_runtime_spike_test.go`) now runs green against a real Docker **29.1.3** daemon
+(API 1.52, containerd 2.2.1, runc 1.3.4) in WSL, and it changed the code rather than just confirming it:
+
+| Claim | Measured result |
+|---|---|
+| `Resolve` by `codeplo.resource` label, absent label → `ErrNoContainer` | **true** — passed |
+| Logs demux stdout/stderr into separate lines, `timestamps=1` parsed | **true** — 2 lines, both streams separated |
+| `since=now` replays nothing (the SSE `Last-Event-ID` resume premise) | **true** — passed |
+| Daemon accepts the exec create body (`Tty` **with** `AttachStderr`), attach moves bytes both ways, `resize` accepted | **true** — `stty size` answered `43 132` after the resize |
+| **Closing the attach ends the exec** (the old `docker.go` comment asserted this) | **FALSE.** The container's `/bin/sh` was still running minutes later; `docker top` still listed it |
+| Half-closing the write side ends it | **FALSE** — a tty exec has no stdin pipe, so there is no EOF for the shell to read |
+| `POST /exec/{id}/kill` kills it | **The route is not registered at any API version** on this daemon (`{"message":"page not found"}` at 1.24/1.41/1.52, while `/exec/{id}/resize` on the same prefix answers 200). So the first fix — calling kill — was a silent no-op, and treating 404 as "benign" hid it |
+| What *does* work | An **in-band terminal EOF**: `^U` then `^D` twice. Measured side by side: hang-up alone → still running; `^D^D` → exit 0; `exit\r\n` → exit 0 |
+
+Fix in `internal/modules/runtime/docker.go`: `Close()` now writes `ttyEOF` (`\x15\x04\x04`) before hanging up
+— `^U` first so a half-typed command line is discarded instead of executed by teardown — then half-closes,
+then still asks the daemon to kill (for runtimes that implement it), and reports a missing kill route as
+unsupported rather than success. Spike D's assertion is now "the exec ends **and** the container's process
+table holds nothing but its own command", and it passes: `exit code 0`, `process table after the close:
+[sleep 600]`.
+
+Because the mechanism is a protocol behaviour, not a Docker version accident, it is pinned without a daemon
+too: `internal/modules/runtime/docker_exec_test.go` runs a stub Docker Engine API server on a unix socket,
+answers 404 for kill exactly like 29.1.3 does, and asserts the adapter writes precisely the EOF gesture,
+half-closes so the daemon sees the session end, is idempotent on a second `Close()`, and never starts a
+non-tty exec.
+
+Gates after this change: `gofmt -l .` empty, `GOOS=linux go build ./...` + `go vet ./...` clean, and
+`go test -race -count=1 ./...` — **13 packages ok, 0 FAIL, no skips** (the stub test needs AF_UNIX; it runs
+on Windows 11 and on Linux CI).
+
 
 ## Security note: a local-VM credential is in git history
 
@@ -144,10 +178,13 @@ Read `internal/modules/terminal/terminal.go`, `internal/modules/runtime/runtime.
 touching this area — they are the types and the privilege boundary everything else compiles against.
 
 **Tasks left, in dependency order**
-1. Runtime verification in WSL against real Docker + systemd — the §6.2 P3 exit criteria, listed above and
-   not yet met. Two claims in `docs/DECISIONS.md` are settled only by that run: that closing the attach
-   connection ends a Docker exec, and that the helper socket's mode lets the unprivileged daemon reach
-   `/run/codeplo-pty/pty.sock`.
+1. Run spike E in WSL against real systemd (`tmp/setup_spike_e.sh` is not in the repo — it was never written
+   down; recreate it from the header comment in `test/spikes/p3_hostpty_spike_test.go`): create the
+   `codeplo` service user, an operator account in `sudo` and a non-operator account, install
+   `/usr/local/bin/codeplo` + the two units, `systemctl restart codeplo-pty.socket`, then run the compiled
+   binary **as the codeplo user** (`setpriv --reuid=... --clear-groups`) and once **as root** for the peer
+   check, and with `/etc/codeplo/allow-root` present and absent. The Docker half of §6.2 P3 is done — see
+   the "container runtime verified against real Docker" section above.
 2. Installer test fixtures must serve **seven** artefacts now (adds `codeplo-pty.socket`,
    `codeplo-pty@.service`); the checksum guard is `-eq 7`.
 3. Frontend: `TerminalPane`/`TerminalPage` and the log viewer already speak the right frames and are
@@ -197,11 +234,15 @@ operator when a test needs it.
 
 ## Next
 
-Phase 3's code is in and green on every local gate. What Phase 3 still needs is the §6.2 P3 runtime
-verification in WSL (host and container shells on a real systemd host with real Docker, refusal without
-an operator identity, root off by default and step-up-gated when on, close-the-tab ends the PTY, an
-audit row per session, logs with backpressure that survive reconnects) and the frontend's live-mode pass.
+Phase 3's code is in and green on every local gate, and its container-runtime behaviour is now verified
+against a real Docker daemon — including the teardown defect that run found and that the code had documented
+as working when it was not. What Phase 3 still needs is the host-shell run on a real systemd (spike E: host
+and container shells reachable through the panel, refusal without an operator identity, root off by default
+and step-up-gated when on, close-the-tab ends the PTY, an audit row per session, logs with backpressure that
+survive reconnects, the seven-artefact installer test) and the frontend's live-mode pass.
 
 Phase 4 (projects & deployments) is next in the plan's order and owns migration `0004_workloads.sql`;
-the `runtime.Runtime` port and the `codeplo.resource` label are the interfaces it builds on. Its
-delegation prompt was handed to that agent on 2026-10-21.
+the `runtime.Runtime` port and the `codeplo.resource` label are the interfaces it builds on. Its delegation
+prompt was handed to that agent on 2026-10-21 and re-issued on the same date, now including the Docker
+teardown facts above (a deployment engine that creates containers must not inherit the "hang up and hope"
+assumption).

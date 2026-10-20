@@ -309,10 +309,46 @@ and `creack/pty` out of the indirect block; `gofmt -w` fixed the hand-aligned te
   the process and the session row; the container bridge moves keystrokes into the exec stdin, turns
   a text resize frame into a tty resize and reports the exec exit code; a ticket minted for one
   Origin is refused from another and leaves no session row.
-- **Still a claim, not a verified fact:** that closing the Docker attach ends the exec. The adapter
-  relies on pty hang-up rather than `POST /exec/{id}/kill`. The idle/close-tab tests use fakes; only
-  the WSL run against real Docker can settle it.
+- **Settled later the same day, and it falsified the claim:** that closing the Docker attach ends the exec.
+  It does not — measured on Docker 29.1.3, and neither does half-closing the write side, and this daemon has
+  no `POST /exec/{id}/kill` route to fall back on. See "Docker exec teardown: measured, not assumed" below.
 - **Known residual: no WS keepalive.** A browser that disappears without a close frame leaves the
   server's read parked until the idle timeout fires (default 900 s), so a shell can outlive its tab
   for that long. The idle timer is the current safety net; a ping/pong deadline is the fix if the
   window is judged too wide.
+
+### Docker exec teardown: measured, not assumed (2026-10-21)
+
+`docker.go` used to claim that closing the attach connection ends the exec, because with a tty the daemon is
+expected to hang up the pty and the shell to take SIGHUP. Measured against Docker 29.1.3 (API 1.52, containerd
+2.2.1, runc 1.3.4) that is **false**, and the alternatives are false too:
+
+| Mechanism | Result on the real daemon |
+|---|---|
+| Close the attach socket | `/bin/sh` still running minutes later, still in `docker top` |
+| Half-close the write side (`CloseWrite`) | still running — a tty exec has no stdin pipe, so EOF has nowhere to go |
+| `POST /exec/{id}/kill` | `404 {"message":"page not found"}` at API 1.24, 1.41, 1.52 and unversioned, while `POST /exec/{id}/resize` on the same prefix answers 200. The route is not registered on this daemon at all, so the first fix (call kill) was a silent no-op — and the code read 404 as "benign", which is how a leak hides |
+| `^U` then `^D` twice, in band | **exit 0, exec gone** |
+| `exit\r\n`, in band | exit 0, exec gone |
+
+**Decision:** `dockerExec.Close()` sends `ttyEOF` = `\x15\x04\x04` first, then half-closes, then asks the daemon
+to kill (kept for runtimes that implement it), then hangs up. `^U` precedes the EOF characters because in
+canonical mode a single `^D` on a *partly typed* line flushes that partial line — teardown must not execute a
+command the operator never finished typing.
+
+Why an in-band gesture rather than something stronger: the panel is unprivileged (`NoNewPrivileges`, ADR 0006)
+and Docker offers no per-exec signal on this daemon. Killing the container is not an option (it would take the
+workload with it), and `kill`-by-pid from inside the container needs a shell in the image and writes into the
+workload's filesystem. An interactive shell is what the terminal runs, and the terminal's own EOF gesture is
+exactly what a user closing a tab means to a shell.
+
+What this does **not** fix: an exec that ignores stdin (a build step, a script that never reads input) will not
+exit on EOF, and this daemon cannot be asked to kill it. The deploy engine in P4 must therefore not assume the
+runtime can interrupt an exec — it needs its own cancellation (per-step timeout plus stopping the container it
+created), and `runtime.Exec` should grow an explicit cancel path or a documented "cannot interrupt" limit
+before P4 relies on it.
+
+The behaviour is pinned without a daemon in `internal/modules/runtime/docker_exec_test.go` (a stub Docker Engine
+API server on a unix socket that answers 404 for kill like 29.1.3 does), and proven with one on a real daemon in
+`test/spikes/p3_runtime_spike_test.go`: the exec ends with code 0 and the container's process table afterwards
+holds only its own command.

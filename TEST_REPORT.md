@@ -317,3 +317,57 @@ stream's ids, `Last-Event-ID` resume with no tail replay, drop-oldest accounting
 - **Session-limit + audit in one transaction.** `Store.Open` and the audit write are two transactions; the
   handler fails closed if the audit write fails, but a crash between them can leave a session row with no audit
   event. Deferred deliberately, recorded in `docs/DECISIONS.md`.
+
+## 13. Phase 3 runtime evidence — container runtime on real Docker (2026-10-21)
+
+### 13.1 What was run
+
+Spike D (`test/spikes/p3_runtime_spike_test.go`, `//go:build spike`) compiled with
+`CGO_ENABLED=0 GOOS=linux go test -c -tags spike` and executed as root in WSL against a live daemon:
+**Docker 29.1.3, API 1.52, MinAPI 1.44, containerd 2.2.1, runc 1.3.4, kernel 6.6.87.2-WSL2**. It drives the
+production `runtime.Docker` type, not a reimplementation.
+
+| Test | Result | Evidence |
+|---|---|---|
+| `TestSpikeDResolveAndLogs` | **PASS** | resolved `cpl-spike-d` by the `codeplo.resource` label; an unlabelled resource returns `ErrNoContainer`; 2 log lines demuxed with stdout and stderr separated; `since=now` replayed nothing |
+| `TestSpikeDExecAttach` | **PASS** | daemon accepted `Tty` together with `AttachStderr`; `Resize(132,43)` then `stty size` inside the shell answered `43 132`; keystrokes and a marker round-tripped; after `Close()` the exit code arrived (0) and the container's process table held only `sleep 600` — no leftover shell |
+
+### 13.2 The defect this run found (fixed, committed `3b41432`)
+
+The adapter's `Close()` documented that hanging up the attach ends the exec because the pty closes and the
+shell takes SIGHUP. **Measured false.** The three candidate mechanisms, side by side on the same daemon:
+
+| Mechanism | Measured |
+|---|---|
+| close the attach socket | shell still running (still in `docker top`) after minutes |
+| half-close the write side | still running — a tty exec has no stdin pipe for EOF |
+| `POST /exec/{id}/kill` | `404 {"message":"page not found"}` at 1.24 / 1.41 / 1.52 / unversioned, while `POST /exec/{id}/resize` on the same prefix answers 200 → the route does not exist on this daemon, so the first fix was a silent no-op and the `404 = benign` switch hid it |
+| in-band `^U` + `^D` `^D` | **exit 0, exec gone** |
+| in-band `exit\r\n` | exit 0, exec gone |
+
+Severity: every closed browser tab left a live shell running in the workload container — a security defect,
+not a leak. Fix and reasoning: `internal/modules/runtime/docker.go` `ttyEOF`, and
+`docs/DECISIONS.md` → "Docker exec teardown: measured, not assumed".
+
+### 13.3 New deterministic test (no daemon required)
+
+`internal/modules/runtime/docker_exec_test.go` runs a stub Docker Engine API server on a unix socket and
+asserts the teardown contract: `Close()` writes exactly `"\x15\x04\x04"` to the attach, half-closes so the
+daemon sees the session end, tolerates a daemon with no kill route, is idempotent, and the start body carries
+`Detach:false` with `Tty:true`; non-tty execs are refused. Runs on Windows 11 (AF_UNIX) and Linux CI.
+
+### 13.4 Gate after the change
+
+`gofmt -l .` empty; `CGO_ENABLED=0 GOOS=linux go build ./...` and `go vet ./...` clean (plus
+`go vet -tags spike`); `CC=... go test -race -count=1 ./...` → **13 packages ok, 0 FAIL, no skips**.
+
+### 13.5 Still not verified (unchanged from 12.4, minus the Docker items now settled)
+
+- **The host half of the §6.2 P3 matrix.** Spike E (`test/spikes/p3_hostpty_spike_test.go`) is written and
+  compiles, and it asserts: socket/`DirectoryMode` traversal by the unprivileged service user, `SO_PEERCRED`
+  refusal of a root peer, `Authorize` against real `/etc/passwd`+`/etc/group` (sudo member yes, non-sudo no,
+  system accounts and injection-shaped names no), root only with `/etc/codeplo/allow-root`, the shell running
+  as the target uid with its HOME and the resized tty, and close-the-socket killing the process group.
+  **It has not been run** — no systemd socket activation has been exercised yet, so none of that is claimed.
+- Installer end to end with seven artefacts; frontend in live mode; session-limit + audit in one transaction
+  (all as recorded in 12.4).
