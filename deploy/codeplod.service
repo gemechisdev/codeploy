@@ -1,0 +1,24 @@
+[Unit]
+Description=codeplo control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=codeplo
+Group=codeplo
+Environment=CODEPLO_DATA_DIR=/var/lib/codeplo
+Environment=CODEPLO_LISTEN=127.0.0.1:7443
+ExecStart=/usr/local/bin/codeplod
+Restart=on-failure
+RestartSec=3
+StateDirectory=codeplo
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/codeplo
+# P3/P4 will need docker group membership and a PTY helper; widen deliberately when those modules ship.
+
+[Install]
+WantedBy=multi-user.target

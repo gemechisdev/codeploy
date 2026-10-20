@@ -1,0 +1,20 @@
+# SCAFFOLD: starts codeplod, waits for idle, reads VmRSS and compares to the Profile A budget (plan 1.4).
+name: memory-budget
+on: { workflow_dispatch: {}, pull_request: { paths: ['internal/**', 'cmd/**'] } }
+jobs:
+  rss:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: CGO_ENABLED=0 go build -o bin/codeplod ./cmd/codeplod
+      - name: measure idle RSS (report only until the budget is ratified)
+        run: |
+          export CODEPLO_DATA_DIR=$(mktemp -d)
+          ./bin/codeplod >/dev/null 2>&1 & pid=$!
+          sleep 20
+          rss_kb=$(awk '/VmRSS/ {print $2}' /proc/$pid/status)
+          echo "idle RSS: $((rss_kb/1024)) MiB"
+          kill $pid
+          # TODO: fail when above the Profile A budget from plan section 1.4

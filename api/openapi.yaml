@@ -1,0 +1,5852 @@
+openapi: 3.1.0
+info:
+  title: codeplo API
+  version: 1.2.0
+  description: OpenAPI-first contract for codeplod. JSON, snake_case, ISO-8601 UTC timestamps, opaque ULID ids. Includes the
+    v1.2 amendments listed in docs/CONTRACT.md.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+- url: /api/v1
+security:
+- cookieAuth: []
+  csrfHeader: []
+tags:
+- name: audit
+  description: audit operations
+- name: auth
+  description: auth operations
+- name: backups
+  description: backups operations
+- name: deployments
+  description: deployments operations
+- name: edge
+  description: edge operations
+- name: events
+  description: events operations
+- name: feature-flags
+  description: feature-flags operations
+- name: git
+  description: git operations
+- name: hardening
+  description: hardening operations
+- name: modules
+  description: modules operations
+- name: notifications
+  description: notifications operations
+- name: permissions
+  description: permissions operations
+- name: projects
+  description: projects operations
+- name: resources
+  description: resources operations
+- name: roles
+  description: roles operations
+- name: settings
+  description: settings operations
+- name: setup
+  description: setup operations
+- name: system
+  description: system operations
+- name: templates
+  description: templates operations
+- name: terminal
+  description: terminal operations
+- name: tokens
+  description: tokens operations
+- name: users
+  description: users operations
+- name: webhooks
+  description: webhooks operations
+paths:
+  /setup/state:
+    get:
+      operationId: getSetupState
+      summary: Setup state
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupState'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/admin:
+    post:
+      operationId: createSetupAdmin
+      summary: Create owner (needs one-time token; works once)
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupAdminRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/totp/enroll:
+    post:
+      operationId: enrollSetupTotp
+      summary: Begin TOTP enrollment
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpEnrollment'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/totp/verify:
+    post:
+      operationId: verifySetupTotp
+      summary: Verify TOTP, return recovery codes once
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpCodeRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoveryCodes'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/verify-domain:
+    post:
+      operationId: verifySetupDomain
+      summary: DNS check for the panel domain
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyDomainRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyDomainResult'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/panel-domain:
+    post:
+      operationId: setPanelDomain
+      summary: Add panel domain route; nothing switches until issuance succeeds
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PanelDomainRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PanelDomainResult'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/operator-candidates:
+    get:
+      operationId: listOperatorCandidates
+      summary: Existing sudo users
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperatorCandidates'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/operator:
+    post:
+      operationId: setOperator
+      summary: Select or create operator identity
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetOperatorRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperatorCandidate'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /setup/complete:
+    post:
+      operationId: completeSetup
+      summary: Finish the wizard; setup endpoints are disabled afterwards
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      responses:
+        '204':
+          description: No content
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /auth/login:
+    post:
+      operationId: login
+      summary: Password login
+      tags:
+      - auth
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /auth/totp/verify:
+    post:
+      operationId: verifyTotp
+      summary: Complete login with TOTP
+      tags:
+      - auth
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpVerifyRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /auth/step-up:
+    post:
+      operationId: stepUp
+      summary: TOTP step-up
+      tags:
+      - auth
+      x-permission: session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StepUpRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepUpResponse'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Logout
+      tags:
+      - auth
+      x-permission: session
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
+  /auth/me:
+    get:
+      operationId: getMe
+      summary: Current session
+      tags:
+      - auth
+      x-permission: session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '429':
+          $ref: '#/components/responses/E429'
+  /users:
+    get:
+      operationId: listUsers
+      summary: List users
+      tags:
+      - users
+      x-permission: users:manage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createUser
+      summary: Create user
+      tags:
+      - users
+      x-permission: users:manage
+      x-step-up: true
+      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /users/{id}:
+    patch:
+      operationId: patchUser
+      summary: Update user
+      tags:
+      - users
+      x-permission: users:manage
+      x-step-up: true
+      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchUserRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+  /tokens:
+    get:
+      operationId: listTokens
+      summary: List API tokens
+      tags:
+      - tokens
+      x-permission: tokens:manage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createToken
+      summary: Create token (secret returned once)
+      tags:
+      - tokens
+      x-permission: tokens:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTokenRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenCreated'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /tokens/{id}:
+    delete:
+      operationId: revokeToken
+      summary: Revoke token
+      tags:
+      - tokens
+      x-permission: tokens:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /roles:
+    get:
+      operationId: listRoles
+      summary: Roles with permissions
+      tags:
+      - roles
+      x-permission: session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /permissions:
+    get:
+      operationId: listPermissions
+      summary: Permission registry
+      tags:
+      - permissions
+      x-permission: session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /audit:
+    get:
+      operationId: listAudit
+      summary: Audit events
+      tags:
+      - audit
+      x-permission: audit:read
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: actor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: action
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /audit/verify:
+    post:
+      operationId: verifyAudit
+      summary: Verify hash chain server-side (tamper-evident)
+      tags:
+      - audit
+      x-permission: audit:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditVerifyResult'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/checks:
+    get:
+      operationId: listHardeningChecks
+      summary: Checks with status, score, apply_enabled
+      tags:
+      - hardening
+      x-permission: hardening:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningChecks'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /hardening/audit:
+    post:
+      operationId: runHardeningAudit
+      summary: Read-only audit (zero mutations)
+      tags:
+      - hardening
+      x-permission: hardening:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningChecks'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/plan:
+    post:
+      operationId: planHardening
+      summary: Plan diffs and commands
+      tags:
+      - hardening
+      x-permission: hardening:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningPlan'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/preflight:
+    post:
+      operationId: preflightHardening
+      summary: Preflight for a Tier 2/3 check
+      tags:
+      - hardening
+      x-permission: hardening:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreflightRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreflightResult'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/apply:
+    post:
+      operationId: applyHardening
+      summary: Apply (Tier 1-3); step-up required
+      tags:
+      - hardening
+      x-permission: hardening:apply
+      x-step-up: true
+      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningChange'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/confirm/{changeId}:
+    post:
+      operationId: confirmHardening
+      summary: Confirm connectivity
+      tags:
+      - hardening
+      x-permission: hardening:apply
+      parameters:
+      - name: changeId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningChange'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/revert/{changeId}:
+    post:
+      operationId: revertHardening
+      summary: Revert now
+      tags:
+      - hardening
+      x-permission: hardening:apply
+      parameters:
+      - name: changeId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningChange'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /hardening/runs:
+    get:
+      operationId: listHardeningRuns
+      summary: Run history
+      tags:
+      - hardening
+      x-permission: hardening:read
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningRunPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /hardening/changes:
+    get:
+      operationId: listHardeningChanges
+      summary: Pending and recent changes (amendment 1)
+      tags:
+      - hardening
+      x-permission: hardening:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardeningChanges'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /edge/status:
+    get:
+      operationId: getEdgeStatus
+      summary: Caddy status
+      tags:
+      - edge
+      x-permission: edge:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeStatus'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /edge/reconcile:
+    post:
+      operationId: reconcileEdge
+      summary: Manual reconcile
+      tags:
+      - edge
+      x-permission: edge:reconcile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeStatus'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /edge/certificates:
+    get:
+      operationId: listCertificates
+      summary: Certificates
+      tags:
+      - edge
+      x-permission: edge:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CertificateList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /domains:
+    get:
+      operationId: listDomains
+      summary: All domains including the panel domain
+      tags:
+      - edge
+      x-permission: edge:read
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /resources/{id}/domains:
+    get:
+      operationId: listResourceDomains
+      summary: Resource domains
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createResourceDomain
+      summary: Add domain
+      tags:
+      - resources
+      x-permission: domain:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDomainRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainRoute'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/domains/{domainId}:
+    delete:
+      operationId: deleteResourceDomain
+      summary: Remove domain
+      tags:
+      - resources
+      x-permission: domain:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: domainId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /projects:
+    get:
+      operationId: listProjects
+      summary: Projects
+      tags:
+      - projects
+      x-permission: resource:read
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createProject
+      summary: Create project
+      tags:
+      - projects
+      x-permission: project:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /projects/{id}:
+    get:
+      operationId: getProject
+      summary: Project tree (environments + resources)
+      tags:
+      - projects
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectTree'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /projects/{id}/environments:
+    get:
+      operationId: listEnvironments
+      summary: Environments
+      tags:
+      - projects
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvironmentList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createEnvironment
+      summary: Create environment
+      tags:
+      - projects
+      x-permission: project:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEnvironmentRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Environment'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources:
+    get:
+      operationId: listResources
+      summary: Resources
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: environment_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourcePage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createResource
+      summary: Create resource (stopped until first deployment unless deploy_now)
+      tags:
+      - resources
+      x-permission: resource:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourceRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateResourceResponse'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}:
+    get:
+      operationId: getResource
+      summary: Resource
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    patch:
+      operationId: patchResource
+      summary: Update resource
+      tags:
+      - resources
+      x-permission: resource:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchResourceRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+    delete:
+      operationId: deleteResource
+      summary: Delete resource
+      tags:
+      - resources
+      x-permission: resource:delete
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /resources/{id}/start:
+    post:
+      operationId: startResource
+      summary: Start resource
+      tags:
+      - resources
+      x-permission: resource:control
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/stop:
+    post:
+      operationId: stopResource
+      summary: Stop resource
+      tags:
+      - resources
+      x-permission: resource:control
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/restart:
+    post:
+      operationId: restartResource
+      summary: Restart resource
+      tags:
+      - resources
+      x-permission: resource:control
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/policy:
+    get:
+      operationId: getResourcePolicy
+      summary: Effective isolation policy (amendment 4)
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyResult'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /resources/{id}/env:
+    get:
+      operationId: listEnv
+      summary: Env vars (secret values never returned)
+      tags:
+      - resources
+      x-permission: env:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    put:
+      operationId: putEnv
+      summary: Replace env set; replacing a secret value needs step-up
+      tags:
+      - resources
+      x-permission: env:write
+      x-step-up: true
+      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutEnvRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/volumes:
+    get:
+      operationId: listVolumes
+      summary: Volumes
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VolumeList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createVolume
+      summary: Add volume
+      tags:
+      - resources
+      x-permission: resource:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVolumeRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Volume'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/logs:
+    get:
+      operationId: streamResourceLogs
+      summary: Container logs (SSE)
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tail
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: since
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Server-sent events (each `data:` line is JSON of this schema)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /resources/{id}/deployments:
+    post:
+      operationId: createDeployment
+      summary: Trigger deployment
+      tags:
+      - deployments
+      x-permission: deploy:create
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeploymentRequest'
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+    get:
+      operationId: listDeployments
+      summary: Deployments
+      tags:
+      - deployments
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /deployments/{id}:
+    get:
+      operationId: getDeployment
+      summary: Deployment
+      tags:
+      - deployments
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /deployments/{id}/logs:
+    get:
+      operationId: streamDeploymentLogs
+      summary: Deployment logs (SSE)
+      tags:
+      - deployments
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Server-sent events (each `data:` line is JSON of this schema)
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/DeploymentLogLine'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /deployments/{id}/cancel:
+    post:
+      operationId: cancelDeployment
+      summary: Cancel
+      tags:
+      - deployments
+      x-permission: deploy:cancel
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /deployments/{id}/rollback:
+    post:
+      operationId: rollbackDeployment
+      summary: Rollback to retained digest (no step-up; DB not rolled back)
+      tags:
+      - deployments
+      x-permission: deploy:rollback
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackRequest'
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /terminal/ticket:
+    post:
+      operationId: createTerminalTicket
+      summary: Single-use WS ticket (<=30 s); root needs step-up
+      tags:
+      - terminal
+      x-permission: terminal:container
+      x-step-up: true
+      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /terminal/host:
+    get:
+      operationId: connectHostTerminal
+      summary: Host PTY WebSocket (?ticket=)
+      tags:
+      - terminal
+      x-permission: terminal:host
+      parameters:
+      - name: ticket
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'Upgrades to WebSocket (HTTP 101 on the wire). Binary frames = PTY bytes; text frames = JSON control
+            (client: {type:resize,cols,rows}; server: {type:exit,code} | {type:error,message}).'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /terminal/resources/{id}:
+    get:
+      operationId: connectContainerTerminal
+      summary: Container exec WebSocket (?ticket=)
+      tags:
+      - terminal
+      x-permission: terminal:container
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: ticket
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'Upgrades to WebSocket (HTTP 101 on the wire). Binary frames = PTY bytes; text frames = JSON control
+            (client: {type:resize,cols,rows}; server: {type:exit,code} | {type:error,message}).'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /terminal/sessions:
+    get:
+      operationId: listTerminalSessions
+      summary: Session history
+      tags:
+      - terminal
+      x-permission: terminal:host
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminalSessionPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /git/connections:
+    get:
+      operationId: listGitConnections
+      summary: Git connections
+      tags:
+      - git
+      x-permission: git:write
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitConnectionList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createGitConnection
+      summary: Create connection
+      tags:
+      - git
+      x-permission: git:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitConnection'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitConnection'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/source:
+    get:
+      operationId: getResourceSource
+      summary: Source
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    put:
+      operationId: putResourceSource
+      summary: Set source
+      tags:
+      - resources
+      x-permission: git:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceSource'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceSource'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/deploy-key:
+    post:
+      operationId: createDeployKey
+      summary: Generate ed25519 deploy key (public half only)
+      tags:
+      - resources
+      x-permission: git:write
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployKey'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+    get:
+      operationId: getDeployKey
+      summary: Current deploy key
+      tags:
+      - resources
+      x-permission: resource:read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployKey'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /resources/{id}/deploy-hook:
+    get:
+      operationId: getDeployHook
+      summary: Deploy hook metadata (prefix only)
+      tags:
+      - resources
+      x-permission: hook:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployHook'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createDeployHook
+      summary: Create hook (token once)
+      tags:
+      - resources
+      x-permission: hook:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployHookCreated'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/deploy-hook/rotate:
+    post:
+      operationId: rotateDeployHook
+      summary: Rotate hook (token once)
+      tags:
+      - resources
+      x-permission: hook:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployHookCreated'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /resources/{id}/webhook:
+    get:
+      operationId: getWebhook
+      summary: Webhook info
+      tags:
+      - resources
+      x-permission: hook:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookInfo'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createWebhook
+      summary: Create/rotate webhook (secret once)
+      tags:
+      - resources
+      x-permission: hook:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookCreated'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /webhooks/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: Delivery history
+      tags:
+      - webhooks
+      x-permission: hook:manage
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: resource_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '429':
+          $ref: '#/components/responses/E429'
+  /system/status:
+    get:
+      operationId: getSystemStatus
+      summary: Host status
+      tags:
+      - system
+      x-permission: system:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /system/metrics:
+    get:
+      operationId: getSystemMetrics
+      summary: Metrics series
+      tags:
+      - system
+      x-permission: system:metrics
+      parameters:
+      - name: range
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsSeries'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /system/cleanup:
+    post:
+      operationId: runCleanup
+      summary: Docker cleanup
+      tags:
+      - system
+      x-permission: system:cleanup
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CleanupResult'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /system/version:
+    get:
+      operationId: getSystemVersion
+      summary: Version
+      tags:
+      - system
+      x-permission: system:read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemVersion'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /modules:
+    get:
+      operationId: listModules
+      summary: Modules
+      tags:
+      - modules
+      x-permission: session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuleList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /modules/{key}:
+    patch:
+      operationId: patchModule
+      summary: Toggle module
+      tags:
+      - modules
+      x-permission: modules:manage
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchModuleRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Module'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+  /feature-flags:
+    get:
+      operationId: listFeatureFlags
+      summary: Feature flags
+      tags:
+      - feature-flags
+      x-permission: session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlagList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    patch:
+      operationId: patchFeatureFlags
+      summary: Update flags
+      tags:
+      - feature-flags
+      x-permission: flags:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchFlagsRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlagList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+  /settings:
+    get:
+      operationId: getSettings
+      summary: Settings
+      tags:
+      - settings
+      x-permission: session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    patch:
+      operationId: patchSettings
+      summary: Update settings
+      tags:
+      - settings
+      x-permission: flags:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Settings'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+  /events:
+    get:
+      operationId: streamEvents
+      summary: App-wide SSE stream
+      tags:
+      - events
+      x-permission: session
+      x-events:
+        resource.updated:
+          resource_id: string
+        deployment.updated:
+          deployment_id: string
+          resource_id: string
+          status: DeploymentStatus
+          step: string
+        deployment.log:
+          deployment_id: string
+          seq: integer
+          at: date-time
+          stream: stdout|stderr|system
+          line: string
+        hardening.changed:
+          change_id: string?
+        edge.changed:
+          domain_id: string?
+        audit.appended:
+          seq: integer
+        metrics.sample: HostMetrics
+        session.step_up:
+          step_up_until: date-time
+        module.changed:
+          key: string
+        flag.changed:
+          key: string
+      responses:
+        '200':
+          description: Server-sent events (each `data:` line is JSON of this schema)
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/EventEnvelope'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /notifications/channels:
+    get:
+      operationId: listChannels
+      summary: Channels
+      tags:
+      - notifications
+      x-permission: notify:manage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createChannel
+      summary: Create channel
+      tags:
+      - notifications
+      x-permission: notify:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChannelRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /notifications/channels/{id}:
+    patch:
+      operationId: patchChannel
+      summary: Update channel
+      tags:
+      - notifications
+      x-permission: notify:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchChannelRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+    delete:
+      operationId: deleteChannel
+      summary: Delete channel
+      tags:
+      - notifications
+      x-permission: notify:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /notifications/channels/{id}/test:
+    post:
+      operationId: testChannel
+      summary: Send test (amendment 3)
+      tags:
+      - notifications
+      x-permission: notify:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelTestResult'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /alerts/rules:
+    get:
+      operationId: listAlertRules
+      summary: Alert rules
+      tags:
+      - notifications
+      x-permission: notify:manage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRuleList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createAlertRule
+      summary: Create rule
+      tags:
+      - notifications
+      x-permission: notify:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAlertRuleRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /alerts/rules/{id}:
+    patch:
+      operationId: patchAlertRule
+      summary: Update rule
+      tags:
+      - notifications
+      x-permission: notify:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchAlertRuleRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+  /resources/{id}/backups:
+    get:
+      operationId: listResourceBackups
+      summary: Backup schedules
+      tags:
+      - backups
+      x-permission: backup:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupScheduleList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+    post:
+      operationId: createBackupSchedule
+      summary: Create schedule
+      tags:
+      - backups
+      x-permission: backup:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBackupScheduleRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupSchedule'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /backups/schedules:
+    get:
+      operationId: listBackupSchedules
+      summary: All schedules
+      tags:
+      - backups
+      x-permission: backup:manage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupScheduleList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /backups/runs:
+    get:
+      operationId: listBackupRuns
+      summary: Backup runs
+      tags:
+      - backups
+      x-permission: backup:manage
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRunPage'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /backups/{id}/run:
+    post:
+      operationId: runBackup
+      summary: Run schedule now
+      tags:
+      - backups
+      x-permission: backup:manage
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRun'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /backups/{id}/restore:
+    post:
+      operationId: restoreBackup
+      summary: Restore (step-up; pre-restore snapshot)
+      tags:
+      - backups
+      x-permission: backup:restore
+      x-step-up: true
+      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreResult'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '409':
+          $ref: '#/components/responses/E409'
+  /templates:
+    get:
+      operationId: listTemplates
+      summary: Template catalog
+      tags:
+      - templates
+      x-permission: template:deploy
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateList'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+  /templates/{key}/deploy:
+    post:
+      operationId: deployTemplate
+      summary: Deploy template
+      tags:
+      - templates
+      x-permission: template:deploy
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeployTemplateRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateResourceResponse'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+  /webhooks/github:
+    post:
+      operationId: receiveGithubWebhook
+      tags:
+      - git
+      summary: Server-side only (HMAC-SHA256 + delivery-ID dedupe). Not called by the UI.
+      x-permission: public
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '202':
+          description: Accepted
+        '401':
+          $ref: '#/components/responses/E401'
+        '429':
+          $ref: '#/components/responses/E429'
+  /hooks/deploy/{token}:
+    post:
+      operationId: receiveDeployHook
+      tags:
+      - git
+      summary: Server-side only (token in path, hashed at rest). Not called by the UI.
+      x-permission: public
+      security: []
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                digest:
+                  type: string
+              additionalProperties: false
+              required:
+              - image
+      responses:
+        '202':
+          description: Accepted
+        '401':
+          $ref: '#/components/responses/E401'
+        '429':
+          $ref: '#/components/responses/E429'
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-codeplo
+      description: HttpOnly session cookie. Loopback bootstrap listener uses `codeplo_session` (plan 3.12).
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Required on every non-GET request; value from GET /auth/me.
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+          - unauthenticated
+          - forbidden
+          - step_up_required
+          - validation_failed
+          - conflict
+          - not_found
+          - rate_limited
+          - module_disabled
+          - preflight_failed
+          - internal
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+      required:
+      - code
+      - message
+    Permission:
+      type: string
+      enum:
+      - resource:read
+      - resource:write
+      - resource:delete
+      - resource:control
+      - deploy:create
+      - deploy:cancel
+      - deploy:rollback
+      - env:read
+      - env:write
+      - domain:write
+      - project:write
+      - terminal:host
+      - terminal:root
+      - terminal:container
+      - hardening:read
+      - hardening:apply
+      - edge:read
+      - edge:reconcile
+      - git:write
+      - hook:manage
+      - audit:read
+      - users:manage
+      - tokens:manage
+      - modules:manage
+      - flags:manage
+      - system:read
+      - system:metrics
+      - system:cleanup
+      - notify:manage
+      - backup:manage
+      - backup:restore
+      - template:deploy
+    Role:
+      type: object
+      properties:
+        key:
+          type: string
+          enum:
+          - owner
+          - admin
+          - deployer
+          - viewer
+        name:
+          type: string
+        builtin:
+          type: boolean
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+      additionalProperties: false
+      required:
+      - key
+      - name
+      - builtin
+      - permissions
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum:
+          - owner
+          - admin
+          - deployer
+          - viewer
+        totp_enabled:
+          type: boolean
+        disabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_login_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - email
+      - role
+      - totp_enabled
+      - disabled
+      - created_at
+      - last_login_at
+    Me:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        role:
+          type: string
+          enum:
+          - owner
+          - admin
+          - deployer
+          - viewer
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        step_up_until:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        csrf_token:
+          type: string
+        server_now:
+          type: string
+          format: date-time
+        bootstrap:
+          type: boolean
+      additionalProperties: false
+      required:
+      - user
+      - role
+      - permissions
+      - step_up_until
+      - csrf_token
+      - server_now
+      - bootstrap
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      additionalProperties: false
+      required:
+      - email
+      - password
+    LoginResponse:
+      type: object
+      properties:
+        totp_required:
+          type: boolean
+        challenge:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - totp_required
+    TotpVerifyRequest:
+      type: object
+      properties:
+        challenge:
+          type: string
+        code:
+          type: string
+      additionalProperties: false
+      required:
+      - challenge
+      - code
+    StepUpRequest:
+      type: object
+      properties:
+        code:
+          type: string
+      additionalProperties: false
+      required:
+      - code
+    StepUpResponse:
+      type: object
+      properties:
+        step_up_until:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - step_up_until
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum:
+          - admin
+          - deployer
+          - viewer
+      additionalProperties: false
+      required:
+      - email
+      - password
+      - role
+    PatchUserRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum:
+          - admin
+          - deployer
+          - viewer
+        disabled:
+          type: boolean
+      additionalProperties: false
+    ApiToken:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        last_used_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        expires_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - prefix
+      - scopes
+      - last_used_at
+      - expires_at
+      - created_at
+    CreateTokenRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        expires_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - name
+      - scopes
+    TokenCreated:
+      type: object
+      properties:
+        token:
+          $ref: '#/components/schemas/ApiToken'
+        secret:
+          type: string
+          description: Shown exactly once.
+      additionalProperties: false
+      required:
+      - token
+      - secret
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+          enum:
+          - user
+          - system
+          - token
+        actor_id:
+          type: string
+        actor_email:
+          oneOf:
+          - type: string
+          - type: 'null'
+        ip:
+          type: string
+        action:
+          type: string
+        target_type:
+          type: string
+        target_id:
+          type: string
+        meta:
+          type: object
+          additionalProperties: true
+        prev_hash:
+          type: string
+        hash:
+          type: string
+      additionalProperties: false
+      required:
+      - id
+      - seq
+      - at
+      - actor_type
+      - actor_id
+      - ip
+      - action
+      - target_type
+      - target_id
+      - meta
+      - prev_hash
+      - hash
+    AuditVerifyResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        verified_rows:
+          type: integer
+        first_invalid_seq:
+          oneOf:
+          - type: integer
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - valid
+      - verified_rows
+    SetupState:
+      type: object
+      properties:
+        setup_required:
+          type: boolean
+        token_valid:
+          type: boolean
+        step:
+          type: string
+          enum:
+          - token
+          - admin
+          - totp
+          - domain
+          - operator
+          - audit
+          - done
+        has_operator:
+          type: boolean
+      additionalProperties: false
+      required:
+      - setup_required
+      - step
+      - has_operator
+    SetupAdminRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+      additionalProperties: false
+      required:
+      - token
+      - email
+      - password
+    TotpEnrollment:
+      type: object
+      properties:
+        secret:
+          type: string
+        otpauth_uri:
+          type: string
+      additionalProperties: false
+      required:
+      - secret
+      - otpauth_uri
+    TotpCodeRequest:
+      type: object
+      properties:
+        code:
+          type: string
+      additionalProperties: false
+      required:
+      - code
+    RecoveryCodes:
+      type: object
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      required:
+      - recovery_codes
+    VerifyDomainRequest:
+      type: object
+      properties:
+        hostname:
+          type: string
+      additionalProperties: false
+      required:
+      - hostname
+    VerifyDomainResult:
+      type: object
+      properties:
+        hostname:
+          type: string
+        resolves:
+          type: boolean
+        resolved_ips:
+          type: array
+          items:
+            type: string
+        host_ips:
+          type: array
+          items:
+            type: string
+        matches_host:
+          type: boolean
+        detail:
+          type: string
+      additionalProperties: false
+      required:
+      - hostname
+      - resolves
+      - matches_host
+      - detail
+    PanelDomainRequest:
+      type: object
+      properties:
+        hostname:
+          type: string
+      additionalProperties: false
+      required:
+      - hostname
+    PanelDomainResult:
+      type: object
+      properties:
+        hostname:
+          type: string
+        cert_status:
+          type: string
+          enum:
+          - issuing
+          - issued
+          - error
+        url:
+          oneOf:
+          - type: string
+          - type: 'null'
+        detail:
+          type: string
+      additionalProperties: false
+      required:
+      - hostname
+      - cert_status
+    OperatorCandidate:
+      type: object
+      properties:
+        username:
+          type: string
+        uid:
+          type: integer
+        sudo:
+          type: boolean
+        has_authorized_keys:
+          type: boolean
+      additionalProperties: false
+      required:
+      - username
+      - uid
+      - sudo
+      - has_authorized_keys
+    OperatorCandidates:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatorCandidate'
+      additionalProperties: false
+      required:
+      - items
+    SetOperatorRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum:
+          - existing
+          - create
+        username:
+          type: string
+        public_key:
+          type: string
+      additionalProperties: false
+      required:
+      - mode
+      - username
+    PlanDiff:
+      type: object
+      properties:
+        target:
+          type: string
+        before:
+          type: string
+        after:
+          type: string
+      additionalProperties: false
+      required:
+      - target
+      - before
+      - after
+    HardeningCheck:
+      type: object
+      properties:
+        key:
+          type: string
+        tier:
+          type: integer
+          enum:
+          - 0
+          - 1
+          - 2
+          - 3
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+          - pass
+          - warn
+          - fail
+          - skipped
+        driver:
+          type: string
+          enum:
+          - nftables
+          - sshd
+          - fail2ban
+          - crowdsec
+          - apt
+          - sysctl
+          - users
+          - docker
+          - network
+        detect_detail:
+          type: string
+        plan_diff:
+          oneOf:
+          - $ref: '#/components/schemas/PlanDiff'
+          - type: 'null'
+        apply_enabled:
+          type: boolean
+        requires_ack:
+          type: boolean
+        experimental:
+          type: boolean
+        apply_flag:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - key
+      - tier
+      - name
+      - description
+      - status
+      - driver
+      - detect_detail
+      - plan_diff
+      - apply_enabled
+      - requires_ack
+    HardeningChecks:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HardeningCheck'
+        score:
+          type: integer
+        last_run_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - score
+      - last_run_at
+    PlanRequest:
+      type: object
+      properties:
+        check_keys:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      required:
+      - check_keys
+    HardeningPlan:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              check_key:
+                type: string
+              plan_diff:
+                oneOf:
+                - $ref: '#/components/schemas/PlanDiff'
+                - type: 'null'
+              commands:
+                type: array
+                items:
+                  type: string
+            additionalProperties: false
+            required:
+            - check_key
+            - plan_diff
+            - commands
+      additionalProperties: false
+      required:
+      - items
+    PreflightRequest:
+      type: object
+      properties:
+        check_key:
+          type: string
+      additionalProperties: false
+      required:
+      - check_key
+    PreflightItem:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        ok:
+          type: boolean
+        detail:
+          type: string
+      additionalProperties: false
+      required:
+      - key
+      - label
+      - ok
+      - detail
+    PreflightResult:
+      type: object
+      properties:
+        check_key:
+          type: string
+        ok:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreflightItem'
+      additionalProperties: false
+      required:
+      - check_key
+      - ok
+      - items
+    ApplyRequest:
+      type: object
+      properties:
+        check_key:
+          type: string
+        ack:
+          oneOf:
+          - type: object
+            properties:
+              console_access:
+                type: boolean
+            additionalProperties: false
+            required:
+            - console_access
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - check_key
+    HardeningChange:
+      type: object
+      properties:
+        id:
+          type: string
+        check_key:
+          type: string
+        check_name:
+          type: string
+        tier:
+          type: integer
+          enum:
+          - 0
+          - 1
+          - 2
+          - 3
+        snapshot_path:
+          type: string
+        revert_unit:
+          oneOf:
+          - type: string
+          - type: 'null'
+        applied_at:
+          type: string
+          format: date-time
+        confirm_deadline:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        confirmed_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        reverted_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        state:
+          type: string
+          enum:
+          - applied
+          - pending_confirm
+          - confirmed
+          - reverting
+          - reverted
+      additionalProperties: false
+      required:
+      - id
+      - check_key
+      - check_name
+      - tier
+      - snapshot_path
+      - applied_at
+      - confirm_deadline
+      - confirmed_at
+      - reverted_at
+      - state
+    HardeningChanges:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HardeningChange'
+        server_now:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - items
+      - server_now
+    HardeningRun:
+      type: object
+      properties:
+        id:
+          type: string
+        mode:
+          type: string
+          enum:
+          - audit
+          - plan
+          - apply
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        actor_id:
+          type: string
+        score:
+          type: integer
+      additionalProperties: false
+      required:
+      - id
+      - mode
+      - started_at
+      - finished_at
+      - actor_id
+      - score
+    DomainRoute:
+      type: object
+      properties:
+        id:
+          type: string
+        resource_id:
+          oneOf:
+          - type: string
+          - type: 'null'
+        resource_name:
+          oneOf:
+          - type: string
+          - type: 'null'
+        hostname:
+          type: string
+        is_panel:
+          type: boolean
+        force_https:
+          type: boolean
+        redirect_www:
+          type: boolean
+        cert_status:
+          type: string
+          enum:
+          - issuing
+          - issued
+          - error
+        cert_expires_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        cert_error:
+          oneOf:
+          - type: string
+          - type: 'null'
+        issuer:
+          type: string
+        upstream:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - resource_id
+      - hostname
+      - is_panel
+      - force_https
+      - redirect_www
+      - cert_status
+      - cert_expires_at
+      - issuer
+      - upstream
+      - created_at
+    CreateDomainRequest:
+      type: object
+      properties:
+        hostname:
+          type: string
+        force_https:
+          type: boolean
+        redirect_www:
+          type: boolean
+      additionalProperties: false
+      required:
+      - hostname
+    EdgeStatus:
+      type: object
+      properties:
+        caddy_running:
+          type: boolean
+        admin_socket:
+          type: string
+        config_hash:
+          type: string
+        last_reconciled_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        drift:
+          type: boolean
+        route_count:
+          type: integer
+        server_now:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - caddy_running
+      - admin_socket
+      - config_hash
+      - last_reconciled_at
+      - drift
+      - route_count
+    Certificate:
+      type: object
+      properties:
+        hostname:
+          type: string
+        issuer:
+          type: string
+        status:
+          type: string
+          enum:
+          - issuing
+          - issued
+          - error
+        not_after:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        error:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - hostname
+      - issuer
+      - status
+      - not_after
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - slug
+      - description
+      - created_at
+    CreateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+      additionalProperties: false
+      required:
+      - name
+      - slug
+    Environment:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+      additionalProperties: false
+      required:
+      - id
+      - project_id
+      - name
+    CreateEnvironmentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      additionalProperties: false
+      required:
+      - name
+    ProjectTree:
+      type: object
+      properties:
+        project:
+          $ref: '#/components/schemas/Project'
+        environments:
+          type: array
+          items:
+            type: object
+            properties:
+              environment:
+                $ref: '#/components/schemas/Environment'
+              resources:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Resource'
+            additionalProperties: false
+            required:
+            - environment
+            - resources
+      additionalProperties: false
+      required:
+      - project
+      - environments
+    ResourceConfig:
+      type: object
+      properties:
+        image:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum:
+              - pull
+              - build
+            ref:
+              oneOf:
+              - type: string
+              - type: 'null'
+            dockerfile:
+              oneOf:
+              - type: string
+              - type: 'null'
+            context:
+              oneOf:
+              - type: string
+              - type: 'null'
+          additionalProperties: false
+          required:
+          - mode
+        port:
+          type: integer
+        healthcheck:
+          type: object
+          properties:
+            path:
+              type: string
+            interval_s:
+              type: integer
+            retries:
+              type: integer
+            start_period_s:
+              type: integer
+            timeout_s:
+              type: integer
+          additionalProperties: false
+          required:
+          - path
+          - interval_s
+          - retries
+          - start_period_s
+          - timeout_s
+        limits:
+          type: object
+          properties:
+            memory_mb:
+              type: integer
+            cpus:
+              type: number
+            pids_limit:
+              type: integer
+          additionalProperties: false
+          required:
+          - memory_mb
+          - cpus
+          - pids_limit
+        isolation:
+          type: object
+          properties:
+            cap_add:
+              type: array
+              items:
+                type: string
+            user:
+              oneOf:
+              - type: string
+              - type: 'null'
+            trusted:
+              type: boolean
+          additionalProperties: false
+          required:
+          - cap_add
+          - trusted
+        restart:
+          type: string
+          enum:
+          - unless-stopped
+          - always
+          - on-failure
+          - 'no'
+        retain_images:
+          type: integer
+      additionalProperties: false
+      required:
+      - image
+      - port
+      - healthcheck
+      - limits
+      - isolation
+      - restart
+      - retain_images
+    Resource:
+      type: object
+      properties:
+        id:
+          type: string
+        environment_id:
+          type: string
+        project_id:
+          type: string
+        environment_name:
+          type: string
+        type:
+          type: string
+          enum:
+          - app
+          - compose
+          - static
+          - database
+          - service
+        name:
+          type: string
+        slug:
+          type: string
+        config:
+          $ref: '#/components/schemas/ResourceConfig'
+        status:
+          type: string
+          enum:
+          - running
+          - deploying
+          - stopped
+          - failed
+          - degraded
+        desired_state:
+          type: string
+          enum:
+          - running
+          - stopped
+        active_deployment_id:
+          oneOf:
+          - type: string
+          - type: 'null'
+        active_digest:
+          oneOf:
+          - type: string
+          - type: 'null'
+        primary_domain:
+          oneOf:
+          - type: string
+          - type: 'null'
+        started_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - environment_id
+      - project_id
+      - environment_name
+      - type
+      - name
+      - slug
+      - config
+      - status
+      - desired_state
+      - active_deployment_id
+      - active_digest
+      - created_at
+    CreateResourceRequest:
+      type: object
+      properties:
+        environment_id:
+          type: string
+        type:
+          type: string
+          enum:
+          - app
+          - compose
+          - static
+        name:
+          type: string
+        config:
+          $ref: '#/components/schemas/ResourceConfig'
+        source:
+          oneOf:
+          - $ref: '#/components/schemas/ResourceSource'
+          - type: 'null'
+        domain:
+          oneOf:
+          - type: string
+          - type: 'null'
+        deploy_now:
+          type: boolean
+      additionalProperties: false
+      required:
+      - environment_id
+      - type
+      - name
+      - config
+    CreateResourceResponse:
+      type: object
+      properties:
+        resource:
+          $ref: '#/components/schemas/Resource'
+        deployment:
+          oneOf:
+          - $ref: '#/components/schemas/Deployment'
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - resource
+      - deployment
+    PatchResourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        config:
+          $ref: '#/components/schemas/ResourceConfig'
+      additionalProperties: false
+    PolicyControl:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
+        default:
+          type: string
+        state:
+          type: string
+          enum:
+          - ok
+          - warn
+          - violation
+        note:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - key
+      - label
+      - value
+      - default
+      - state
+    PolicyResult:
+      type: object
+      properties:
+        resource_id:
+          type: string
+        ok:
+          type: boolean
+        controls:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyControl'
+        violations:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      required:
+      - resource_id
+      - ok
+      - controls
+      - violations
+    EnvVar:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        value:
+          oneOf:
+          - type: string
+          - type: 'null'
+        scope:
+          type: string
+          enum:
+          - build
+          - runtime
+          - both
+        is_secret:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - key
+      - value
+      - scope
+      - is_secret
+      - updated_at
+    EnvVarInput:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          oneOf:
+          - type: string
+          - type: 'null'
+        scope:
+          type: string
+          enum:
+          - build
+          - runtime
+          - both
+        is_secret:
+          type: boolean
+        keep_existing_secret:
+          type: boolean
+          description: True = leave an existing secret unchanged (value omitted).
+      additionalProperties: false
+      required:
+      - key
+      - scope
+      - is_secret
+    PutEnvRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVarInput'
+      additionalProperties: false
+      required:
+      - items
+    EnvList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnvVar'
+      additionalProperties: false
+      required:
+      - items
+    Volume:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mount_path:
+          type: string
+        host_path:
+          type: string
+        kind:
+          type: string
+        size_mb:
+          oneOf:
+          - type: integer
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - mount_path
+      - host_path
+      - kind
+    CreateVolumeRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        mount_path:
+          type: string
+      additionalProperties: false
+      required:
+      - name
+      - mount_path
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: string
+        resource_id:
+          type: string
+        status:
+          type: string
+          enum:
+          - queued
+          - preparing
+          - building
+          - starting
+          - verifying
+          - switching
+          - observing
+          - succeeded
+          - failed
+          - cancelled
+          - interrupted
+          - rolled_back
+        step:
+          type: string
+        trigger:
+          type: string
+          enum:
+          - manual
+          - webhook
+          - deploy_hook
+          - rollback
+        commit_sha:
+          oneOf:
+          - type: string
+          - type: 'null'
+        commit_message:
+          oneOf:
+          - type: string
+          - type: 'null'
+        branch:
+          oneOf:
+          - type: string
+          - type: 'null'
+        image_ref:
+          type: string
+        image_digest:
+          oneOf:
+          - type: string
+          - type: 'null'
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        heartbeat_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        observe_until:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        rollback_of:
+          oneOf:
+          - type: string
+          - type: 'null'
+        error:
+          oneOf:
+          - type: string
+          - type: 'null'
+        rollback_reason:
+          oneOf:
+          - type: string
+          - type: 'null'
+        preflight:
+          oneOf:
+          - type: object
+            properties:
+              ok:
+                type: boolean
+              disk_free_gb:
+                type: number
+              disk_required_gb:
+                type: number
+              ram_ok:
+                type: boolean
+              detail:
+                type: string
+            additionalProperties: false
+            required:
+            - ok
+            - detail
+          - type: 'null'
+        health_attempts:
+          type: object
+          properties:
+            done:
+              type: integer
+            max:
+              type: integer
+            last_status:
+              oneOf:
+              - type: string
+              - type: 'null'
+          additionalProperties: false
+          required:
+          - done
+          - max
+        retained:
+          type: boolean
+        server_now:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - resource_id
+      - status
+      - step
+      - trigger
+      - image_ref
+      - image_digest
+      - started_at
+      - finished_at
+      - retained
+    CreateDeploymentRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum:
+          - pull
+          - build
+        image_ref:
+          oneOf:
+          - type: string
+          - type: 'null'
+        branch:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+    DeploymentLogLine:
+      type: object
+      properties:
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        stream:
+          type: string
+          enum:
+          - stdout
+          - stderr
+          - system
+        line:
+          type: string
+      additionalProperties: false
+      required:
+      - seq
+      - at
+      - stream
+      - line
+    RollbackRequest:
+      type: object
+      properties:
+        acknowledge_db_unchanged:
+          type: boolean
+      additionalProperties: false
+    TicketRequest:
+      type: object
+      properties:
+        target:
+          type: string
+          enum:
+          - host
+          - container
+        resource_id:
+          oneOf:
+          - type: string
+          - type: 'null'
+        as_root:
+          type: boolean
+      additionalProperties: false
+      required:
+      - target
+    TicketResponse:
+      type: object
+      properties:
+        ticket:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        idle_timeout_s:
+          type: integer
+      additionalProperties: false
+      required:
+      - ticket
+      - expires_at
+      - idle_timeout_s
+    TerminalSession:
+      type: object
+      properties:
+        id:
+          type: string
+        user_email:
+          type: string
+        ip:
+          type: string
+        target:
+          type: string
+          enum:
+          - host
+          - container
+        target_name:
+          type: string
+        as_user:
+          type: string
+        is_root:
+          type: boolean
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        recorded:
+          type: boolean
+      additionalProperties: false
+      required:
+      - id
+      - user_email
+      - ip
+      - target
+      - target_name
+      - as_user
+      - is_root
+      - started_at
+      - ended_at
+      - recorded
+    GitConnection:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+          - deploy_key
+          - github_app
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - name
+      - created_at
+    ResourceSource:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - public_git
+          - deploy_key_git
+          - registry
+        repo_url:
+          oneOf:
+          - type: string
+          - type: 'null'
+        branch:
+          oneOf:
+          - type: string
+          - type: 'null'
+        build_path:
+          oneOf:
+          - type: string
+          - type: 'null'
+        dockerfile:
+          oneOf:
+          - type: string
+          - type: 'null'
+        path_filters:
+          type: array
+          items:
+            type: string
+        deploy_key_id:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - kind
+      - path_filters
+    DeployKey:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        public_key:
+          type: string
+        fingerprint:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - public_key
+      - fingerprint
+      - created_at
+    DeployHook:
+      type: object
+      properties:
+        id:
+          type: string
+        token_prefix:
+          type: string
+        last_used_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        image_policy:
+          type: string
+      additionalProperties: false
+      required:
+      - id
+      - token_prefix
+      - last_used_at
+      - created_at
+    DeployHookCreated:
+      type: object
+      properties:
+        hook:
+          $ref: '#/components/schemas/DeployHook'
+        token:
+          type: string
+          description: Shown once. URL is <origin>/api/v1/hooks/deploy/<token>.
+      additionalProperties: false
+      required:
+      - hook
+      - token
+    WebhookInfo:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        secret_prefix:
+          oneOf:
+          - type: string
+          - type: 'null'
+        created_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        path:
+          type: string
+      additionalProperties: false
+      required:
+      - configured
+      - path
+    WebhookCreated:
+      type: object
+      properties:
+        webhook:
+          $ref: '#/components/schemas/WebhookInfo'
+        secret:
+          type: string
+      additionalProperties: false
+      required:
+      - webhook
+      - secret
+    WebhookDelivery:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        delivery_id:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        event:
+          type: string
+        result:
+          type: string
+          enum:
+          - success
+          - ignored
+          - rejected
+        reason:
+          oneOf:
+          - type: string
+          - type: 'null'
+        commit_sha:
+          oneOf:
+          - type: string
+          - type: 'null'
+        resource_id:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - provider
+      - delivery_id
+      - received_at
+      - event
+      - result
+    HostMetrics:
+      type: object
+      properties:
+        cpu_percent:
+          type: number
+        memory_used_mb:
+          type: integer
+        memory_total_mb:
+          type: integer
+        daemon_rss_mb:
+          type: number
+        disk_used_gb:
+          type: number
+        disk_total_gb:
+          type: number
+        net_rx_kbps:
+          type: number
+        net_tx_kbps:
+          type: number
+        container_count:
+          type: integer
+        at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - cpu_percent
+      - memory_used_mb
+      - memory_total_mb
+      - daemon_rss_mb
+      - disk_used_gb
+      - disk_total_gb
+      - container_count
+      - at
+    SystemStatus:
+      type: object
+      properties:
+        hostname:
+          type: string
+        os:
+          type: string
+        arch:
+          type: string
+        cpus:
+          type: integer
+        ram_total_mb:
+          type: integer
+        support_tier:
+          type: string
+          enum:
+          - experimental
+          - limited
+          - primary
+          - comfortable
+          - headroom
+        uptime_s:
+          type: integer
+        metrics:
+          $ref: '#/components/schemas/HostMetrics'
+        operator_configured:
+          type: boolean
+        operator_user:
+          oneOf:
+          - type: string
+          - type: 'null'
+        security_score:
+          type: integer
+        pending_changes:
+          type: integer
+        active_alerts:
+          type: integer
+        server_now:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - hostname
+      - os
+      - arch
+      - cpus
+      - ram_total_mb
+      - support_tier
+      - uptime_s
+      - metrics
+      - operator_configured
+      - security_score
+      - pending_changes
+      - server_now
+    MetricsSeries:
+      type: object
+      properties:
+        range:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostMetrics'
+      additionalProperties: false
+      required:
+      - range
+      - points
+    SystemVersion:
+      type: object
+      properties:
+        version:
+          type: string
+        channel:
+          type: string
+          enum:
+          - stable
+          - edge
+        commit:
+          type: string
+        built_at:
+          type: string
+          format: date-time
+        go_version:
+          type: string
+        db_schema:
+          type: integer
+      additionalProperties: false
+      required:
+      - version
+      - channel
+      - commit
+      - built_at
+    CleanupResult:
+      type: object
+      properties:
+        reclaimed_mb:
+          type: integer
+        images_removed:
+          type: integer
+        containers_removed:
+          type: integer
+        build_cache_mb:
+          type: integer
+      additionalProperties: false
+      required:
+      - reclaimed_mb
+      - images_removed
+      - containers_removed
+    Module:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        core:
+          type: boolean
+        version:
+          type: string
+        phase:
+          type: string
+      additionalProperties: false
+      required:
+      - key
+      - name
+      - description
+      - enabled
+      - core
+      - version
+      - phase
+    PatchModuleRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      additionalProperties: false
+      required:
+      - enabled
+    FeatureFlag:
+      type: object
+      properties:
+        key:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        release_gated:
+          type: boolean
+      additionalProperties: false
+      required:
+      - key
+      - description
+      - enabled
+      - release_gated
+    PatchFlagsRequest:
+      type: object
+      properties:
+        flags:
+          type: object
+          additionalProperties:
+            type: boolean
+      additionalProperties: false
+      required:
+      - flags
+    Settings:
+      type: object
+      properties:
+        values:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+      required:
+      - values
+    NotificationChannel:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+          - telegram
+          - discord
+          - email
+          - webhook
+        name:
+          type: string
+        enabled:
+          type: boolean
+        destination_hint:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - name
+      - enabled
+      - destination_hint
+      - created_at
+    CreateChannelRequest:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - telegram
+          - discord
+          - email
+          - webhook
+        name:
+          type: string
+        config:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: false
+      required:
+      - kind
+      - name
+      - config
+    PatchChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+      additionalProperties: false
+    ChannelTestResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        detail:
+          type: string
+      additionalProperties: false
+      required:
+      - ok
+      - detail
+    AlertRule:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        title:
+          type: string
+        condition:
+          type: string
+        threshold:
+          type: string
+        cooldown_s:
+          type: integer
+        enabled:
+          type: boolean
+        channel_ids:
+          type: array
+          items:
+            type: string
+        last_triggered_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - key
+      - title
+      - condition
+      - threshold
+      - cooldown_s
+      - enabled
+      - channel_ids
+      - last_triggered_at
+    CreateAlertRuleRequest:
+      type: object
+      properties:
+        key:
+          type: string
+        threshold:
+          type: string
+        cooldown_s:
+          type: integer
+        channel_ids:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      required:
+      - key
+    PatchAlertRuleRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        threshold:
+          type: string
+        cooldown_s:
+          type: integer
+        channel_ids:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    BackupSchedule:
+      type: object
+      properties:
+        id:
+          type: string
+        resource_id:
+          type: string
+        resource_name:
+          type: string
+        cron:
+          type: string
+        destination:
+          type: string
+          enum:
+          - local
+          - s3
+        retention_days:
+          type: integer
+        last_run_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        last_run_status:
+          oneOf:
+          - type: string
+            enum:
+            - success
+            - failed
+            - running
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - resource_id
+      - resource_name
+      - cron
+      - destination
+      - retention_days
+      - last_run_at
+      - last_run_status
+    CreateBackupScheduleRequest:
+      type: object
+      properties:
+        cron:
+          type: string
+        destination:
+          type: string
+          enum:
+          - local
+          - s3
+        retention_days:
+          type: integer
+      additionalProperties: false
+      required:
+      - cron
+      - destination
+      - retention_days
+    BackupRun:
+      type: object
+      properties:
+        id:
+          type: string
+        schedule_id:
+          type: string
+        resource_name:
+          type: string
+        status:
+          type: string
+          enum:
+          - success
+          - running
+          - failed
+        size_bytes:
+          type: integer
+        checksum_sha256:
+          oneOf:
+          - type: string
+          - type: 'null'
+        location:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        error:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - schedule_id
+      - resource_name
+      - status
+      - size_bytes
+      - location
+      - started_at
+    RestoreResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        pre_restore_snapshot:
+          type: string
+      additionalProperties: false
+      required:
+      - ok
+      - pre_restore_snapshot
+    Template:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        icon:
+          type: string
+        default_port:
+          type: integer
+        recommended_memory_mb:
+          type: integer
+        kind:
+          type: string
+          enum:
+          - app
+          - compose
+          - database
+      additionalProperties: false
+      required:
+      - key
+      - name
+      - category
+      - description
+      - default_port
+      - recommended_memory_mb
+      - kind
+    DeployTemplateRequest:
+      type: object
+      properties:
+        project_id:
+          type: string
+        environment:
+          type: string
+        name:
+          type: string
+      additionalProperties: false
+      required:
+      - project_id
+      - environment
+      - name
+    EventEnvelope:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+          - resource.updated
+          - deployment.updated
+          - deployment.log
+          - hardening.changed
+          - edge.changed
+          - audit.appended
+          - metrics.sample
+          - session.step_up
+          - module.changed
+          - flag.changed
+        data:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+      required:
+      - id
+      - type
+      - data
+    UserPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    TokenPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiToken'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    AuditPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    HardeningRunPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HardeningRun'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    DomainPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DomainRoute'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    ProjectPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    ResourcePage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    DeploymentPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deployment'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    TerminalSessionPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TerminalSession'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    WebhookDeliveryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookDelivery'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    BackupRunPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRun'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+    RoleList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+      additionalProperties: false
+      required:
+      - items
+    CertificateList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Certificate'
+      additionalProperties: false
+      required:
+      - items
+    EnvironmentList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Environment'
+      additionalProperties: false
+      required:
+      - items
+    VolumeList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Volume'
+      additionalProperties: false
+      required:
+      - items
+    GitConnectionList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitConnection'
+      additionalProperties: false
+      required:
+      - items
+    ModuleList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Module'
+      additionalProperties: false
+      required:
+      - items
+    FlagList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeatureFlag'
+      additionalProperties: false
+      required:
+      - items
+    ChannelList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationChannel'
+      additionalProperties: false
+      required:
+      - items
+    AlertRuleList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertRule'
+      additionalProperties: false
+      required:
+      - items
+    BackupScheduleList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSchedule'
+      additionalProperties: false
+      required:
+      - items
+    TemplateList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Template'
+      additionalProperties: false
+      required:
+      - items
+    PermissionList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                $ref: '#/components/schemas/Permission'
+              description:
+                type: string
+            additionalProperties: false
+            required:
+            - key
+            - description
+      additionalProperties: false
+      required:
+      - items
+  responses:
+    E401:
+      description: unauthenticated
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E403:
+      description: forbidden | step_up_required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E404:
+      description: not_found | module_disabled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E409:
+      description: conflict | preflight_failed (details.checks)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E422:
+      description: validation_failed (details.fields)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E429:
+      description: rate_limited (Retry-After header)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

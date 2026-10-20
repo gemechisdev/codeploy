@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Brand Theme Tokens (§User Request) */
+  --color-brand-primary: #A43CC7;
+  --color-brand-primary-hover: #8e2cb0;
+  --color-brand-primary-light: #f3dff8;
+  --color-brand-secondary: #35206A;
+  --color-brand-secondary-hover: #271650;
+  --color-brand-accent: #62D6C3;
+  --color-brand-accent-dark: #3fb5a1;
+  --color-brand-base: #F8EBFC;
+
+  /* Theme-adaptive surfaces & semantic tokens */
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-surface-elevated: var(--bg-surface-elevated);
+  --color-surface-subtle: var(--bg-surface-subtle);
+  --color-surface-muted: var(--bg-surface-muted);
+  --color-subtle: var(--border-subtle);
+  --color-strong: var(--border-strong);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-code-bg: var(--code-bg);
+}
+
+:root {
+  --bg-canvas: #F8EBFC;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-surface-subtle: #fbf2fe;
+  --bg-surface-muted: #f3def9;
+  --border-subtle: #ebd0f5;
+  --border-strong: #dca7ec;
+  --text-primary: #1e1030;
+  --text-secondary: #584172;
+  --text-muted: #8872a0;
+  --code-bg: #1c0d2e;
+}
+
+.dark {
+  --bg-canvas: #12091c;
+  --bg-surface: #1a0e28;
+  --bg-surface-elevated: #231435;
+  --bg-surface-subtle: #1e0f2f;
+  --bg-surface-muted: #2d1a45;
+  --border-subtle: #382054;
+  --border-strong: #54317d;
+  --text-primary: #f6ecfa;
+  --text-secondary: #c9b1db;
+  --text-muted: #8d73a3;
+  --code-bg: #0c0513;
+}
+
+html, body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Tabular figures for numbers */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(164, 60, 199, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(164, 60, 199, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

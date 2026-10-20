@@ -1,0 +1,32 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: pip install pyyaml
+      - name: lint
+        run: make lint
+      - name: test (includes the authz matrix in test/authz)
+        run: go test -race ./...
+      - name: authz matrix
+        run: go test ./test/authz/... -run TestEveryRouteDeclaresOnePermission -count=1
+      - name: OpenAPI vs generated drift check
+        run: |
+          make gen
+          git diff --exit-code -- web/src/api/schema.d.ts internal/api/stubs_gen.go internal/api/oapigen
+          test -z "$(git status --porcelain -- internal/api/oapigen)"
+      - name: build (embeds web/dist)
+        run: make build
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: cd web && npm ci && npm run build

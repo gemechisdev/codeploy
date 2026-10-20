@@ -1,0 +1,10 @@
+# SCAFFOLD (P9): GoReleaser build + cosign signing are not wired yet.
+name: release
+on:
+  push: { tags: ['v*'] }
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "scaffold only: add goreleaser + cosign in P9" && exit 1
