@@ -42,7 +42,7 @@ Docker and Caddy are Linux-only on this machine.
 | 10 | P2a audit-slice diff | NOT RUN | Not implemented in this tree: `POST /hardening/audit` is the generated stub only (404/501 `module_disabled`); no audit-mode filesystem/nftables behaviour exists to diff. Recorded as not-run, not pass |
 | 11 | Spike A (Caddy) | FAIL(open) — flaky | See §6.1: zero-drop criterion not reliably met — runs alternate between 0 failures (incl. 2082/0 in the final verification run) and 1–2 resets (216/2 in this pass's earlier run) |
 | 11 | Spike B (Docker) | FAIL(fixed) → **PASS** | See §6.2: fixture defect fixed twice (CHOWN+NET_BIND_SERVICE, then SETGID+SETUID); final re-run with the gofmt-clean source: `--- PASS: TestDockerPullCreateHealthSwap (16.82s)` |
-| 12 | Installer on clean VM | PASS | All 4 cases in WSL Ubuntu (systemd): HTTPS-served fake release installs and service is active as `codeplo` over the tunnel endpoint; tampered binary, tampered unit file, and missing checksum entry each abort. Fixture gotcha: `checksums.txt` must be GNU two-space LF format |
+| 12 | Installer on clean VM | ~~PASS~~ → **REOPENED and FAIL(fixed)** | This row was **wrong as reported**. The four abort cases did pass, but the "clean install" case never asserted that the services *ran* — `systemctl enable --now` returns 0 for a crash-looping unit and the wait loop only slept. Re-running the fixture in P2 surfaced three real boot-time defects (see §11): Caddy exited 1 on an empty ACME placeholder in the bootstrap, `codeplod` died on `codeplo.sock: bind: permission denied` because the root-run Caddy unit re-owned `/var/lib/codeplo`, and the installer still reported success. All three fixed; the installer now asserts panel readiness and `exit 1`s otherwise |
 
 ## 3. Defects found and fixed (file → fix)
 
@@ -194,3 +194,59 @@ re-measurement belongs on a Linux runner.
 - RSS and the spikes were measured on WSL2/Windows, not the plan's clean Linux VM lab.
 - P2a slice: not implemented → reported NOT RUN everywhere it appears.
 - Spike A flakiness was recorded, not fixed — the repo test stays strict by mandate.
+
+## 11. Phase 2 addendum (edge + hardening, 2026-10-20)
+
+Everything in §2 was a P0/P1 verdict. Phase 2 added the edge module, the hardening engine with
+apply/confirm/revert, the daemon-independent dead-man switch, and the Caddy deployment units.
+
+### 11.1 Gate, re-run after the merged Phase 2 tree
+
+| Command | Result |
+|---|---|
+| `gofmt -l .` | Empty |
+| `go build ./...` | Pass |
+| `go vet ./...`, `go vet -tags spike ./...` | Pass |
+| `CC=<WinLibs gcc> go test -race -count=1 ./...` | Pass — 11 packages `ok` (`api` 90.0 s, `modules/edge` 4.2 s, `modules/hardening` 4.4 s, `platform`, `test/authz`, core), 0 FAIL, **0 skipped tests** |
+| `make gen` chain (`npm run gen:api`, `gen_stubs.py`, `go generate`) run twice, md5 compared | Identical — no drift |
+| Frontend `npm run lint` (tsc + guards), `npm run build`, `check:mock-free`, `check:external`, `check:size`, `npm test` | Pass — guards 104 files/8 rules, 94/94 vitest (Node 22.23.3, `--fileParallelism=false`) |
+| Spike C (`TestCaddyEdgeRenderLoadNoDrift`, real Caddy v2.11.7 in WSL) | **PASS 3.54 s** |
+
+### 11.2 Defects Phase 2 verification found, and their status
+
+| # | Defect | Where | Status |
+|---|---|---|---|
+| 1 | Installer reported success on a crash-looping panel (no readiness assertion) | `deploy/install.sh` | FIXED — readiness loop now `exit 1`s with `journalctl` guidance |
+| 2 | Bootstrap Caddy config carried `{env.CODEPLO_ACME_EMAIL}`; Caddy exited 1 at boot ("evaluated placeholder is empty") | `deploy/caddy/bootstrap.json` | FIXED — bootstrap is admin-only; the reconciler injects the `tls` policy when the operator sets the address |
+| 3 | Root-run Caddy unit declared `StateDirectory=codeplo`, re-owning `/var/lib/codeplo` → panel fatal `codeplo.sock: bind: permission denied` | `deploy/caddy/codeplo-caddy.service` | FIXED — dropped, `ReadWritePaths` only |
+| 4 | Documented `sh install.sh` usage could never run (`set -o pipefail` + arrays) | `deploy/install.sh` | FIXED — dash-visible guard, usage corrected to `bash install.sh` |
+| 5 | `updateHardeningChange` dropped the `WHERE id=?` bind → confirm/revert 500 (`missing argument with index 2`) and silent no-op updates | `internal/api/handlers_hardening_apply.go` | FIXED — helper appends the id and refuses a 0-row update |
+| 6 | fail2ban `ignoreip = a b` parsed the `=` as an address; a jail that would ban its own operator passed verification | `internal/modules/hardening/drivers.go` | FIXED — separator handling + operator-IP refusal |
+| 7 | fail2ban Verify reported jail contents before daemon state (claimed protection while fail2ban was stopped) | `internal/modules/hardening/drivers.go` | FIXED — daemon state first |
+| 8 | Apply recorded the live-state revert *after* mutating; confirm disarmed the timer before persisting boot files; revert ignored live state | `internal/api/handlers_hardening_apply.go` | FIXED — ordering now snapshot → revert-plan → mutate; persist → disarm → DB; revert restores files **then** kernel state, idempotent when the table is already gone |
+| 9 | All four `web/scripts/*.mjs` used `new URL().pathname`, which breaks on Windows (`C:\C:\Users\...`); `lint-guards.mjs` also matched `mock/` prefixes against backslash `relative()` output, so its exemptions were inoperative | `web/scripts/*.mjs` | FIXED — `fileURLToPath` + separator normalization. The guards had never actually run on this host before |
+| 10 | Spike C failed with 200-empty-body probes because the installer fixture left `codeplo-caddy` **enabled**, holding `:80`/`:443` | test environment | FIXED (harness) — fixture cleans up; recorded because a running service is shared state |
+
+### 11.3 Phase 2 runtime evidence (WSL Ubuntu, systemd, real Caddy)
+
+Installer run against an HTTPS-served fake release: **15/15 assertions** — installer exits 0;
+`codeplo-caddy` active; `codeplod` active 20 s later with `NRestarts=0`; admin socket present
+and `660 root codeplo`; `/var/lib/codeplo` is `700 codeplo codeplo`; the unprivileged `codeplo`
+user reads the admin API; the running config contains the reconciler's `:80`/`:443` servers
+(which the on-disk bootstrap does not have, proving the push happened); panel answers on both
+loopback TCP and its unix socket; installer log, panel journal and Caddy journal contain no
+error, panic, placeholder or permission-denied lines; `/etc/default/codeplod` template created.
+Plus the abort cases: tampered binary, tampered Caddy unit, missing checksum entry, missing
+Caddy prerequisite — each exits non-zero before writing anything.
+
+### 11.4 What Phase 2 did NOT verify (open, by mandate not by choice)
+
+- **VM fault-injection matrix (§3.10.8)**: kill the daemon after apply and let the systemd timer
+  revert; reboot before confirm; external port scan on IPv4+IPv6; fail2ban self-ban drill.
+  The *semantics* are asserted at the API seam (`systemd-run` argv recorded for Tier ≥ 2 and
+  absent for Tier 1; boot persistence ordered before disarm; live-table drop on revert), but no
+  disposable VM has run them. P2c apply therefore stays default-off, as the plan requires.
+- **Automatic HTTPS on a real public domain** — needs DNS to this host; only Caddy's internal
+  issuer path was exercised.
+- CI never executed on a runner; RSS still 78.8 MB vs the 50 MB Profile A budget (Windows number).
+- No signed release: `make dist` produces and checksums the artefact set, cosign path untested.

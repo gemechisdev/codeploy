@@ -124,3 +124,82 @@ Status: FIXED this pass / NOTED (no code change; recorded here) / OPEN.
   checksum lines; CRLF line endings or `sha256sum`'s binary-mode `*name` marker make
   every entry fail. The release pipeline must emit GNU-format (LF) files; the WSL
   installer fixtures did.
+
+## Phase 2 — edge + host hardening (2026-10-20)
+
+Judgment calls and fixes made while implementing P2a/P2b/P2c and deploying them on a real systemd host:
+
+- **Checks are Go-defined, not YAML** (D9 stays open). `internal/modules/hardening/audit.go`
+  holds the detector/plan/apply triad for the ten baseline keys; `Env.Root` redirects every
+  file read so the whole engine is testable in a temp tree. A YAML loader would only move the
+  same code behind a parser until a third-party check actually needs it.
+- **Module gating is the DB `enabled` flag plus route declarations in code**, not
+  `modules.Registry.Register`. The registry exists and `srv.Reg.Enabled(ctx, key)` is what the
+  daemon and every handler consult; nothing self-registers, because a module whose routes are
+  in the OpenAPI contract cannot appear or disappear dynamically without breaking the
+  route-set equality test. Registering edge/hardening in `Registry` would add an indirection
+  with no consumer.
+- **`www → https` redirect is emitted even when `force_https` is off** (ADR 0003 follow-up):
+  the www alias exists only to reach the apex, and answering it over plain HTTP would serve
+  the site on a host the operator never chose. `redirect_www` still controls alias-on.
+- **Caddy has no `ExecReload`.** The file on disk is the admin-only bootstrap; a `systemctl
+  reload` would load it and wipe every route the reconciler pushed. All config change goes
+  through `POST /load` on the unix socket, and the reconciler supervises the unit with
+  `systemctl restart` when the API stops answering.
+- **The bootstrap config carries no `apps.tls` block.** The renderer injects the ACME `tls`
+  policy only when `CODEPLO_ACME_EMAIL` is set (`internal/modules/edge/render.go:89`); a
+  placeholder `{env.CODEPLO_ACME_EMAIL}` in the bootstrap made Caddy exit 1 on boot with
+  "evaluated placeholder is empty". Operators set the address in `/etc/default/codeplod`,
+  which the installer now templates.
+- **`deploy/caddy/codeplo-caddy.service` must not declare `StateDirectory=codeplo`.** systemd
+  chowns a state directory to the *declaring* unit's `User=`; this unit runs as root while
+  `codeplod.service` (`User=codeplo`) claims the same path, so claiming it re-owned
+  `/var/lib/codeplo` to root and the panel died on `codeplo.sock: bind: permission denied`.
+  The unit only gets `ReadWritePaths=/var/lib/codeplo/caddy`.
+- **Tier 1 never arms the dead-man switch.** It cannot cut access (§3.10), so
+  `hardening_revert_window_s` applies to Tier ≥ 2 only; a Tier-1 apply records the row as
+  `confirmed` immediately. `TestHardeningTier2PendingGuard` was rewritten to hold a Tier-2
+  change pending (not weakened) to keep guarding the tiers that can lock the operator out.
+- **Ordering rules, applied consistently:** apply = snapshot files → record live-state revert →
+  mutate → arm timer → DB; confirm = persist for boot → disarm timer → DB; revert = stop timer
+  → restore files → restore live state → DB. Confirm persists **before** disarming so a change
+  that would vanish at reboot is never marked permanent, and a failed apply rolls back live
+  state through the same `RuntimeRevert` path the timer uses.
+- **A failed runtime probe means the state is already gone.** `RuntimeStep.Probe` runs first;
+  if the probe fails, `RuntimeRevert` skips the destructive `Apply` argv rather than guessing
+  (deleting a table another operator removed, or reloading sshd over nothing).
+- **fail2ban Verify reports the daemon before the jail.** The check claims protection is
+  *running*; a stopped fail2ban bans nobody, so "not active" outranks a jail-on-disk problem.
+  Also `ignoreip = a b` — the `=` is fail2ban's separator, not an address, and the first
+  parser treated it as one, which would have hidden a missing operator IP.
+- **`updateHardeningChange` appends the change id itself.** Every statement it runs ends in
+  `WHERE id=?`, so the id is the last placeholder; callers that forgot it returned a silent
+  no-op and confirm/revert 500'd with `missing argument with index 2`. The helper now binds it
+  and refuses a 0-row update, so a state-guard mismatch is an error instead of lost work.
+- **`install.sh` requires bash and asserts readiness.** The documented `sh install.sh` could
+  never work (`set -o pipefail` is not POSIX and arrays are bash-only), so a dash-visible guard
+  now says so. The old wait loop only *slept*; a crash-looping panel still printed success. It
+  now polls `/api/v1/setup/state` and `exit 1`s with `journalctl` guidance. Verified end-to-end
+  in WSL: 15 assertions (unit active, no `NRestarts`, socket `660 root codeplo`, `codeplo` user
+  reads the admin API, live config holds the reconciler's `:80`/`:443` servers, panel answers on
+  TCP and unix socket, clean journals).
+- **The earlier "Installer: all 4 cases PASS" claim was wrong** and is corrected here and in
+  `TEST_REPORT.md`: those cases never asserted that the services *ran*, which is exactly why
+  three boot-time defects (ACME placeholder, `StateDirectory`, no readiness assert) hid.
+- **`make dist` is the only producer of the release artefact set** until the P9 publish job
+  exists; it cross-builds amd64+arm64, copies the two units and the bootstrap as
+  `caddy-bootstrap.json`, and writes GNU-format `checksums.txt` — the same file list the
+  installer downloads, so a missing entry fails the installer rather than shipping a gap.
+- **`/resources/{id}/domains` does not verify the resource exists yet** — the `resources` table
+  arrives in P4. The route is real (hostname validation, uniqueness, panel-reserved rejection,
+  in-tx audit, best-effort reconcile); P4 must add the existence check. Recorded rather than
+  silently deferred.
+- **Windows portability of the frontend gates.** All four `web/scripts/*.mjs` used
+  `new URL(...).pathname`, which yields `/C:/...` on Windows and crashed `npm run lint`; and
+  `lint-guards.mjs` compared `relative()` output against `'mock/'` prefixes, which never match
+  Windows backslashes. Both fixed (`fileURLToPath`, separator normalization). Until now the
+  guards had never actually run on this host, and their exemptions were inoperative when they did.
+- **A running service is shared state.** Spike C failed once with 200-empty-body probes because
+  the installer fixture had left `codeplo-caddy` *enabled* on the VM; it owned `:80`/`:443` and
+  answered the spike's requests. The spike passes with the ports free — the fixture now cleans up
+  after itself, and WSL's 8-minute idle teardown means a test run must not span two commands.

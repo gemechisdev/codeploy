@@ -1,141 +1,75 @@
-# PROGRESS: codeplo backend, Phase 0 and Phase 1
+# PROGRESS: codeplo — P0 and P1 met (with two recorded gaps), P2 implemented and gate-verified
 
-Status: **P0 met except the Caddy zero-drop spike and CI-runner execution; P1 met except the idle-RSS budget; the P2a audit slice is not implemented and its checks are not run.**
-The tree now compiles, vets, is gofmt-clean, passes `go test -race ./...`, and has been
-runtime-verified (daemon, CLI, live curl contract run, spikes in WSL, installer in WSL).
-See `TEST_REPORT.md` for the full evidence table.
+Status: **Phase 2 (P2a edge + audit + safe fixes, P2b reversible firewall, P2c guarded SSH) is
+implemented, compiled, race-tested and deployed on a real systemd host.** P2c stays behind
+`hardening.apply_tier3`, default off, as the plan requires until its VM matrix passes.
+Phase 3 (terminal & logs) is next and not started.
+Evidence table below; full detail in `TEST_REPORT.md`, judgment calls in `docs/DECISIONS.md`.
 
-## Done in the tester pass (2026-10-20) — compiled, tested, runtime-verified
+## Phase 2 — what was built
 
-- **Build/toolchain**: `go mod tidy` (real `go.sum`), `go build ./...`, `go vet ./...`
-  (also `-tags spike`), `gofmt -l .` clean — all on the real toolchain, no stubs.
-- **Generation**: `make gen` fixed and idempotent — oapi-codegen pinned v2.4.1→v2.8.0
-  (2.4.1 cannot parse the OpenAPI 3.1 nullable forms), `output:` path made
-  package-relative, `gen_stubs.py` now writes LF. `internal/api/oapigen/models.gen.go`
-  generated and committed; TS schema and stubs regenerate byte-identical.
-- **Tests**: `go test -race ./...` all green (two test-only fixes: contract role enum
-  in `api_test.go`, Windows path in the `operators_test.go` passwd fixture).
-  New `test/authz/routes_test.go` proves the Go route set equals the OpenAPI
-  path/method set exactly (110 routes) and every route's permission equals its
-  `x-permission`. New `internal/api/security_test.go` (12 tests) plus a config
-  loopback-mandatory test.
-- **Mock alignment**: `/system/status` net fields, settings and module seed data,
-  settings audit shape + bus event, post-commit `audit.appended` on
-  `PATCH /feature-flags`, SSE wire format (counter `id:` lines, `server_now`,
-  500-event ring + `?last_event_id` replay). OpenAPI amended where the mock and the
-  frontend were right (setup 401s, 501s, modules 409, cursor params, `/events`);
-  amendments documented in `web/docs/CONTRACT.md`, full diff table in
-  `docs/DECISIONS.md`. Frontend: `tsc` clean, vitest 94/94 (Node 22, serial forks).
-- **Binary**: `make build` → `bin/codeplod`, `bin/codeplo`. Verified live: one-time
-  setup token, `setup-token`, `doctor [--verify-audit]`, tamper detection
-  (`first_invalid_seq=2`, exit 1), `reset-password`, `disable-2fa`.
-- **Contract run**: `scripts/contract-test.sh` (documented in
-  `docs/contract-test.md`) replays all 17 frontend calls against a live daemon —
-  every expected status matched; vite live-mode proxy verified. Not browser-driven:
-  the wizard's operator step needs a Linux sudo user (host limitation);
-  `/setup/complete` itself does not require an operator.
-- **RSS**: idle `codeplod` = **78.8 MB** vs the ≤ 50 MB Profile A budget → **over,
-  unmet**. Measured on Windows; the plan's budget is a Linux-lab number. Reported,
-  not tuned.
-- **Spikes**: Spike B **PASS** (pull → create → health-wait → blue/green swap over
-  the Docker Engine API socket; fixture needed `CapAdd [CHOWN, NET_BIND_SERVICE,
-  SETGID, SETUID]` because nginx:alpine cannot run under `CapDrop ALL` alone — see
-  DECISIONS "Spike findings"; 19.91 s, re-verified 16.82 s). Spike A **flaky, kept
-  strict**: the same binary and host give 0 failures in some runs (0/2082 in the
-  final run) and 1–2 resets in others (2/216, 2697, 1638 requests) → zero-drop not
-  certifiable; mitigations recorded (keep-alive clients ride the swap; pace reloads).
-- **Installer**: all 4 cases PASS in WSL Ubuntu with systemd — clean install over
-  HTTPS (service active, runs as `codeplo`, tunnel endpoint answers, setup token
-  works), tampered binary / tampered unit file / missing checksum entry each abort.
-  `checksums.txt` must be GNU two-space LF format.
+| Area | Files | What it does |
+|---|---|---|
+| Migration | `internal/store/migrations/0002_edge_hardening.sql` | `domains`, `edge_snippets`, `hardening_runs`, `hardening_results`, `hardening_changes` |
+| Edge core | `internal/modules/edge/{client,render,reconcile,certs}.go` | Caddy admin client over the unix socket only (refuses TCP), deterministic whole-config JSON renderer + SHA-256 drift key, reconciler (`Reconcile`, `Status`, `Certificates`, `Loop` supervision with `systemctl restart`), panel-domain row helpers |
+| Edge API | `internal/api/handlers_edge.go`, `handlers_domains.go` | `/edge/status`, `/edge/reconcile`, `/edge/certificates`, `GET /domains`, `GET/POST /resources/{id}/domains`, `DELETE /resources/{id}/domains/{domainId}`, `POST /setup/panel-domain` (replaces the P1 501 stub) |
+| Daemon wiring | `cmd/codeplod/main.go` | when the `edge` module is enabled: build the reconciler, run one reconcile at startup (non-fatal), supervise in a 30 s loop tied to the daemon context |
+| Hardening engine | `internal/modules/hardening/{audit,plan,preflight,apply,score,tiers,revert,drivers}.go` | `detect → plan → preflight → snapshot → apply → confirm \| revert`; ten baseline checks with tier + apply-flag metadata; `sshd -T` effective-config verification; nftables runtime-first plan; fail2ban jail with the operator's IPs ignored; snapshot spool + live-state `revert.json` |
+| Hardening API | `internal/api/handlers_hardening.go`, `handlers_hardening_apply.go` | `/hardening/checks` (with `plan_diff` + `apply_enabled`), `/audit`, `/plan`, `/preflight`, `/apply`, `/confirm/{id}`, `/revert/{id}`, `/runs`, `/changes` |
+| Dead-man switch | `hardening.ScheduleRevertTimer` + `cmd/codeplo/main.go` `revert <id>` | `systemd-run --on-active=<window>s codeplo revert <id>`; the CLI needs neither daemon, database nor network |
+| Platform | `internal/platform/{exec,systemd,distro,apt,host_*}.go` | fixed-argv runner, `SystemdActive`, distro item paths |
+| Deploy | `deploy/install.sh`, `deploy/caddy/{codeplo-caddy.service,bootstrap.json}`, `deploy/codeplod.service`, `Makefile` `dist` | installer now ships and verifies five artefacts, requires Caddy as a hard prerequisite, asserts the panel answers, and templates `/etc/default/codeplod` |
+| Tests | `internal/api/{edge_test,hardening_apply_test}.go`, `internal/modules/edge/*_test.go`, `internal/modules/hardening/*_test.go` | zero-mutation audit diff, Tier-1 idempotency, runtime-first ordering, dead-man arming and absence for Tier 1, live-state revert, operator-bannable jail refusal, preflight refusals |
 
-## Not done / open
-
-- **CI never executed on a runner.** `ci.yml`, `release.yml`, `memory-budget.yml` are
-  wired (lint, test, authz matrix, drift check, build) but this host only ran them
-  locally.
-- **Browser-driven contract run** (wizard operator step) — needs a Linux host's
-  `/etc/passwd` sudo user; curl fallback used.
-- **Idle RSS over budget** (78.8 > 50 MB, Windows-host number).
-- **P2a audit slice not implemented**: `POST /hardening/audit` is a stub only
-  (404/501 `module_disabled`); its exit checks are NOT RUN, not pass.
-- **Caddy zero-downtime under rapid reloads** not proven (Spike A flaky); mitigations
-  recorded (keep-alive clients unaffected; pace reloads).
-- Release pipeline: no signed release exists; cosign path untested (installer path
-  with self-signed CA verified in WSL).
-- sqlc scaffolded but P1 uses hand-written `database/sql` (DECISIONS).
-- TOTP replay guard is in-memory; persisted last-used step deferred (schema change).
-
-## Historical: what earlier passes wrote (now superseded on verification status)
-
-Passes 1–4 produced the tree described below. Their "unverified" caveats no longer
-apply — everything listed was compiled, tested under `-race`, and runtime-verified in
-the tester pass; the judgment calls they record still stand (see `docs/DECISIONS.md`).
-
-| Area | Files |
-|---|---|
-| Go module | `go.mod` + `go.sum` |
-| Migration and seeds | `internal/store/migrations/0001_core.sql`: ten required tables plus `recovery_codes` and `setup_state`; seeds for roles, settings, flags, modules; triggers abort UPDATE/DELETE on `audit_events` |
-| Store | `internal/store/db.go`: modernc SQLite, WAL, goose `Up`, idempotent `role_permissions` seed, `InTx` |
-| Authz registry | `internal/authz/permissions.go`: full registry (no secret-reveal permission), role map, `public`/`session` pseudo-permissions |
-| Crypto / Authn | `internal/crypto/crypto.go` (XChaCha20-Poly1305, SHA-256 token hashes, ULIDs), `internal/authn/authn.go` (argon2id, TOTP, recovery codes, replay guard) |
-| Audit | `internal/audit/audit.go`: in-tx append, mock-compatible hash chain, `Verify{valid, verified_rows, first_invalid_seq}`, seq gap = tampering |
-| Jobs, events, modules | `internal/jobs/queue.go`, `internal/events/bus.go` (IDs, history, `Since`), `internal/modules/module.go` |
-| API | `internal/api/{router,session,handlers_auth,handlers_admin}.go`: one route table, one permission per route; guard order rate limit → authn → owner-TOTP gate → CSRF → permission; `__Host-codeplo` cookie on HTTPS, bootstrap cookie on loopback; per-IP and per-account token buckets; step-up on user create/patch |
-| Endpoints | `/setup/*`, `/auth/*`, `/users`, `/tokens`, `/roles`, `/permissions`, `/audit`, `/audit/verify`, `/system/status`, `/system/version`, `/modules`, `/feature-flags`, `/settings`, `/events` (SSE) |
-| Later-phase stubs | `internal/api/stubs_gen.go`: 77 routes from `openapi.yaml` `x-permission`; disabled module → 404, enabled-unimplemented → 501 `module_disabled` |
-| Host and UI | `internal/platform/host_*.go`, `internal/webui/embed.go` (`go:embed all:dist`, SPA fallback) |
-| Binaries | `cmd/codeplod` (config, migrate, first-start setup token, loopback + unix listeners, worker, graceful shutdown), `cmd/codeplo` (doctor, status, setup-token, reset-password, disable-2fa) |
-| Config | `internal/config` refuses non-loopback binds; `internal/app` (open, setup-token issuance, 1 h TTL) |
-| Tooling | `Makefile` (`gen`, `lint`, `test`, `build`, `run`), `scripts/gen_stubs.py`, CI workflows |
-| Docs | `docs/threat-model.md`, ADRs 0001–0005, `docs/DECISIONS.md`, `docs/contract-test.md`, `TEST_REPORT.md` |
-| Spikes | `test/spikes/{caddy,docker}_spike_test.go` behind the `spike` tag; run in WSL via a linux cross-compiled test binary |
-| Authz tests | `test/authz/matrix_test.go`, `test/authz/routes_test.go` |
-| Deploy | `deploy/install.sh` (checksum-verified download, service user, systemd, tunnel instructions), `deploy/codeplod.service` |
-
-## Verification performed (tester pass)
+## Phase 2 — verification (2026-10-20)
 
 | Check | Result |
 |---|---|
-| `go build ./...`, `go vet ./...` (+ `-tags spike`), `gofmt -l .` | Pass, real toolchain |
-| `go test -race ./...` (CC=WinLibs gcc 16.2.0) | All packages pass |
-| Authz matrix + route-set==OpenAPI equality (110 routes) | Pass |
-| Security tests (12, new) + config loopback test | Pass |
-| `make gen` ×2 | No diff; models/stubs/TS committed artifacts match |
-| Binary: setup token, doctor, tamper→exit 1, reset-password, disable-2fa | Pass (real DB) |
-| Contract run: 17 calls via curl + vite live proxy | Pass (browser not driven — host limitation, recorded) |
-| Frontend `tsc` + vitest | Clean / 94 pass (Node 22, `--fileParallelism=false`) |
-| Idle RSS vs Profile A ≤ 50 MB | **78.8 MB — FAIL(open)** |
-| Spike A (Caddy v2.11.7) | **FAIL(open)** — flaky: 0 failures and 1–2 resets across runs of the same binary; kept strict |
-| Spike B (Docker 29.1.3, WSL) | **Pass** after fixture fix (19.91 s; re-verified 16.82 s) |
-| Installer 4 cases (WSL Ubuntu systemd) | Pass |
-| CI pipelines on a runner | **NOT RUN** (workflows exist; never executed) |
-| P2a audit-slice checks | **NOT RUN** (not implemented in this tree) |
+| `go build ./...`, `go vet ./...`, `go vet -tags spike ./...`, `gofmt -l .` | Pass |
+| `go test -race -count=1 ./...` | Pass — 11 packages ok, 0 FAIL, **0 skips** |
+| Route set == OpenAPI + `x-permission` parity (`test/authz`) | Pass |
+| `make gen` chain run twice | Idempotent — generated TS schema, stubs and models match committed artifacts |
+| Frontend: `tsc --noEmit`, lint guards, `vite build`, `check:mock-free`, `check:external`, `check:size`, vitest | Pass (guards 104 files / 8 rules; 94/94 tests, Node 22.23.3 serial) |
+| Spike C — edge render → `POST /load` → no drift, real Caddy v2.11.7 in WSL | **PASS (3.54 s)** |
+| Installer on WSL Ubuntu (systemd, real Caddy) | Pass — 15/15 assertions: clean install, both units active 20 s later, `NRestarts=0`, admin socket `660 root codeplo`, `codeplo` user reads the admin API, live config holds the reconciler's `:80`/`:443` servers, panel answers on TCP **and** unix socket, `/var/lib/codeplo` `700 codeplo`, clean journals; plus the four abort cases (tampered binary, tampered unit, missing checksum entry, missing Caddy) |
+| Three boot-time defects found by that run | Fixed: ACME placeholder in the bootstrap, `StateDirectory` re-owning the panel's data dir, installer claiming success on a crash-looping panel |
+| Spike A (Caddy zero-drop under rapid reloads) | **UNMET** — flaky, kept strict (see DECISIONS) |
+| CI executed on a runner | **NOT RUN** — workflows wired, never executed |
+| VM fault-injection matrix (§3.10.8) for P2b/P2c | **NOT RUN** — the *semantics* are test-asserted at the API seam; a disposable-VM run (kill daemon after apply, reboot before confirm, external port scan on IPv4+IPv6) is still owed |
+| Panel HTTPS on a real public domain | **NOT RUN** — needs DNS pointing at a public host; cert issuance is exercised against Caddy's internal issuer in the spike |
+| Idle RSS vs Profile A ≤ 50 MB | **UNMET** (78.8 MB measured on Windows; report, don't tune) |
 
-## Exit criteria (plan §6.2) — details and evidence in TEST_REPORT.md §8
+## Exit criteria (§6.2)
 
-**P0**
-- Threat model and ADRs: **met on paper** (docs exist; "merged to main" not applicable locally).
-- Caddy spike zero dropped connections: **UNMET** (flaky; findings and mitigations recorded).
-- Docker spike start → health-wait → swap: **MET** (PASS after fixture fix).
-- CI green with memory-budget job scaffolded: **NOT RUN** (scaffolded and locally green; no runner).
+**P0** — threat model + ADRs met; Docker spike met; **Caddy zero-drop unmet**; CI green on a
+runner not run.
+**P1** — installer on a clean VM met (now with real readiness assertions); tunnel + one-time
+token + TOTP met (curl-driven); per-route permission + authz matrix met; audit chain +
+`doctor --verify-audit` met; RSS unmet; generation-in-CI partial (works, runner never ran).
+**P2a** — audit makes zero changes (tree-diff test) met; Tier 1 fixes idempotent met; fail2ban
+ignore list contains the admin IPs met; operator identity selectable met; **panel reachable
+over automatic HTTPS on a real domain: not verified** (no public DNS here), though the route,
+the ACME policy and the break-glass loopback path are implemented and deployed.
+**P2b** — runtime-first then persist-on-confirm met (asserted ordering: boot files written
+before the timer is disarmed); revert restores files then drops the live table, and is
+idempotent when the table is already gone; **daemon-kill-still-reverts and reboot-before-confirm
+are test-asserted at the seam but not VM-verified**; external scan showing only SSH/80/443 not
+run.
+**P2c** — implemented: `sshd -T` effective comparison, `sshd -t`, `Include` requirement,
+`authorized_keys` sanity, `Accepted publickey` proof, console acknowledgement, reload-not-restart,
+port changes never automated. **Apply stays flag-gated (default plan-only) until the VM matrix
+passes**, which is the plan's own gate.
 
-**P1**
-- `install.sh` on a clean VM: **MET** (WSL Ubuntu, 4/4 cases).
-- Owner via tunnel with one-time token + TOTP login: **MET, curl-driven** (browser not driven).
-- Every route declares a permission + authz matrix: **MET** (incl. route-set equality test).
-- Audit hash chain + `doctor --verify-audit` + tamper detection: **MET**.
-- Idle RSS ≤ budget: **UNMET** (78.8 > 50 MB, Windows host).
-- OpenAPI → Go/TS generation in CI: **PARTIAL** (generation works, drift wired; runner never executed).
+## Open across the project
 
-**P2a**: **NOT RUN** — slice not implemented; stub route only.
+- VM lab (`test/vm/*`) for the hardening fault-injection matrix; release gate for P2b/P2c.
+- CI has never run on a runner (also the only place the RSS budget is meaningful).
+- No signed release; `make dist` is the only artefact producer until P9.
+- `/resources/{id}/domains` does not check the resource exists (no `resources` table until P4).
+- TOTP replay guard in-memory; sqlc scaffolded but unused; `RouteDef.NoCSRF` declared-unused.
 
-## Next steps, in order
+## Next — Phase 3 (terminal & logs)
 
-1. Commit this pass's changes (file list in TEST_REPORT.md / HANDOFF §Remaining work 6).
-2. Run the CI workflows on a real runner (lint/test/build/drift/memory-budget) — the
-   RSS criterion must be re-measured there (Linux Profile A number).
-3. Browser-driven contract run on a Linux host with a sudo user (wizard operator step).
-4. Decide on Spike A: either accept paced reloads in the edge module design (ADR 0003
-   note) or investigate Caddy reload resets further with keep-alive-aware load tools.
-5. Then P2a for real: implement `hardening` audit mode so its exit checks can run.
+Host PTY as the operator user with step-up for root, container shell over Docker exec,
+single-use WS tickets, `terminal_sessions` audit rows, SSE container + deployment logs with
+backpressure. Exit criteria in §6.2 P3; tasks tracked per phase in the plan.
