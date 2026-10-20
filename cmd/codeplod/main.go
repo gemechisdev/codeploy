@@ -10,12 +10,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/codeplo/codeplo/internal/api"
 	"github.com/codeplo/codeplo/internal/app"
 	"github.com/codeplo/codeplo/internal/config"
+	"github.com/codeplo/codeplo/internal/modules/edge"
+	"github.com/codeplo/codeplo/internal/platform"
 )
 
 func main() {
@@ -40,6 +43,31 @@ func run() error {
 
 	srv := api.New(db, key, app.Version, app.Commit, app.BuiltAt)
 	go srv.Jobs.Run(ctx)
+
+	// Managed Caddy edge: when the module is enabled the daemon owns the reconciler, runs one reconcile at
+	// startup (non-fatal if Caddy is still coming up) and supervises it in a loop tied to the daemon context.
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	if srv.Reg.Enabled(ctx, "edge") {
+		adminSocket := envOr("CODEPLO_CADDY_ADMIN_SOCKET", "/run/codeplo/caddy-admin.sock")
+		rec := &edge.Reconciler{
+			DB:      db,
+			Client:  edge.NewClient(adminSocket),
+			Opts:    edge.Options{AdminSocket: adminSocket, PanelSocket: cfg.SocketPath, ACMEEmail: os.Getenv("CODEPLO_ACME_EMAIL")},
+			DataDir: envOr("CODEPLO_CADDY_DATA_DIR", filepath.Join(cfg.DataDir, "caddy")),
+			Unit:    envOr("CODEPLO_CADDY_UNIT", "codeplo-caddy"),
+			Run:     platform.DefaultRunner,
+		}
+		srv.Edge = rec
+		if _, err := rec.Reconcile(ctx); err != nil {
+			slog.Warn("initial edge reconcile deferred to supervisor", "err", err)
+		}
+		go rec.Loop(ctx, 30*time.Second)
+	}
 
 	if tok, issued, err := app.EnsureSetupToken(ctx, db); err != nil {
 		return err

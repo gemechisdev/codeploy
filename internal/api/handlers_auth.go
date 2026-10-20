@@ -57,7 +57,7 @@ func (s *Server) coreRoutes() []RouteDef {
 		{Method: "POST", Path: "/setup/totp/enroll", Perm: P, Handler: s.setupEnroll, NoCSRF: true},
 		{Method: "POST", Path: "/setup/totp/verify", Perm: P, Handler: s.setupVerify, NoCSRF: true},
 		{Method: "POST", Path: "/setup/verify-domain", Perm: P, Handler: s.setupVerifyDomain, NoCSRF: true},
-		{Method: "POST", Path: "/setup/panel-domain", Perm: P, Handler: s.setupLater, NoCSRF: true},
+		{Method: "POST", Path: "/setup/panel-domain", Perm: P, Handler: s.setupPanelDomain, NoCSRF: true},
 		{Method: "GET", Path: "/setup/operator-candidates", Perm: P, Handler: s.setupOperatorCandidates, NoCSRF: true},
 		{Method: "POST", Path: "/setup/operator", Perm: P, Handler: s.setupOperator, NoCSRF: true},
 		{Method: "POST", Path: "/setup/complete", Perm: P, Handler: s.setupComplete, NoCSRF: true},
@@ -313,14 +313,6 @@ func (s *Server) setupVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		detail = "The name resolves to " + strings.Join(resolved, ", ") + ", which is not this host."
 	}
 	writeJSON(w, 200, map[string]any{"hostname": h, "resolves": len(resolved) > 0, "resolved_ips": resolved, "host_ips": hostIPs, "matches_host": match, "detail": detail})
-}
-
-// setupLater: panel-domain (needs the Caddy edge, P2) and operator steps (host hardening, P2).
-func (s *Server) setupLater(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := s.setupSession(w, r); !ok {
-		return
-	}
-	writeErr(w, 501, "module_disabled", "This setup step arrives with the edge and hardening modules (P2)", map[string]any{"implemented": false})
 }
 
 func (s *Server) setupOperatorCandidates(w http.ResponseWriter, r *http.Request) {

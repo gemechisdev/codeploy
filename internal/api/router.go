@@ -20,6 +20,7 @@ import (
 	"github.com/codeplo/codeplo/internal/events"
 	"github.com/codeplo/codeplo/internal/jobs"
 	"github.com/codeplo/codeplo/internal/modules"
+	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/webui"
 )
 
@@ -38,6 +39,7 @@ type Server struct {
 	Bus     *events.Bus
 	Reg     *modules.Registry
 	Jobs    *jobs.Queue
+	Edge    *edge.Reconciler // wired by the daemon when the edge module is enabled; nil otherwise
 	Started time.Time
 	Version string
 	Commit  string
@@ -53,8 +55,15 @@ func New(db *sql.DB, key []byte, version, commit, built string) *Server {
 
 // Routes returns every route in the API (implemented core routes followed by later-phase stubs).
 func (s *Server) Routes() []RouteDef {
-	defs := s.coreRoutes()
+	defs := append(append(s.coreRoutes(), s.hardeningRoutes()...), s.edgeRoutes()...)
+	implemented := map[string]bool{}
+	for _, d := range defs {
+		implemented[d.Method+" "+d.Path] = true
+	}
 	for _, d := range laterPhase {
+		if implemented[d.Method+" "+d.Path] {
+			continue // implemented routes override the generated stub
+		}
 		d.Handler = s.stub(d.Module)
 		defs = append(defs, d)
 	}
