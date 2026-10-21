@@ -32,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | pty-helper (systemd only)")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -46,6 +46,12 @@ func run(cmd string, args []string) error {
 	// data directory or the database: its whole policy is the peer-uid check and terminal.Authorize.
 	if cmd == "pty-helper" {
 		return terminal.ServeHelperStdin(terminal.DefaultHelperPolicy())
+	}
+	// cron owns its arguments: it takes flags of its own and an argv after `--`, so a command word like `find
+	// /data -mtime +30 -delete` must reach the sub-command untouched. Dispatching it here keeps the shared flag set
+	// below from parsing half of it and exiting on the rest.
+	if cmd == "cron" {
+		return cronCommand(args)
 	}
 	cfg, err := config.Load()
 	if err != nil {
