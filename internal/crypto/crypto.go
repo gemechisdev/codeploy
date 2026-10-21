@@ -71,18 +71,32 @@ func Equal(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []by
 
 const crock = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// ULID returns a Crockford ULID (time-ordered) with an optional prefix.
-func ULID(prefix string, nowMs int64) string {
+// floorSuffix is the smallest random half an id can carry: crock's first character, sixteen times.
+const floorSuffix = "0000000000000000"
+
+// timeChars is the 10-character time half every ULID begins with. It is monotonic in the instant because the
+// alphabet is ordered by value, which is what makes id comparisons mean time comparisons.
+func timeChars(nowMs int64) string {
 	var tb [10]byte
 	t := uint64(nowMs)
 	for i := 9; i >= 0; i-- {
 		tb[i] = crock[t%32]
 		t /= 32
 	}
+	return string(tb[:])
+}
+
+// ULID returns a Crockford ULID (time-ordered) with an optional prefix.
+func ULID(prefix string, nowMs int64) string {
 	r := make([]byte, 16)
 	_, _ = rand.Read(r)
 	for i := range r {
 		r[i] = crock[r[i]%32]
 	}
-	return prefix + string(tb[:]) + string(r)
+	return prefix + timeChars(nowMs) + string(r)
 }
+
+// ULIDFloor is the smallest id that can carry an instant: the same time half as ULID and the lowest possible random
+// half. It is a range bound and nothing is ever stored with it, so `id > ULIDFloor(t)` seeks straight to the first
+// row that can hold t instead of scanning a series to filter it by a timestamp column.
+func ULIDFloor(prefix string, nowMs int64) string { return prefix + timeChars(nowMs) + floorSuffix }
