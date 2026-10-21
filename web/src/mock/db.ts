@@ -160,6 +160,7 @@ export async function createDb(opts: CreateDbOptions = {}): Promise<Db> {
       'terminal.max_sessions_per_user': 3, 'terminal.record_sessions': false,
       'deploy.build_timeout_s': 1800, 'deploy.release_timeout_s': 600, 'deploy.max_log_lines': 20000, 'deploy.stop_old_first': false,
       'git.clone_timeout_s': 300, 'git.max_clone_mb': 2048,
+      'git.preview_ttl_hours': 72, 'git.preview_max': 5, 'git.preview_memory_mb': 512,
       'metrics.sample_interval_s': 60, 'metrics.max_samples': 20160, 'alerts.eval_interval_s': 60, 'notify.timeout_s': 10,
       'logs.retention_days': 14, 'logs.max_rows': 200000, 'cron.history_per_job': 50, 'backup.timeout_s': 900,
     },
@@ -169,6 +170,7 @@ export async function createDb(opts: CreateDbOptions = {}): Promise<Db> {
       { key: 'deploy.compose', description: 'Docker Compose resources (checked against the isolation policy).', enabled: false, release_gated: false },
       { key: 'deploy.static', description: 'Static site hosting served directly by Caddy.', enabled: false, release_gated: false },
       { key: 'registry_pull_hook', description: 'Registry-pull deploy hook for GitHub Actions.', enabled: true, release_gated: false },
+      { key: 'git.preview_deploys', description: "Build a preview environment for each open pull request. Runs the branch's code in an isolated container, never a fork and never its release command, capped by git.preview_max and removed at git.preview_ttl_hours. Needs CODEPLO_PREVIEW_DOMAIN.", enabled: false, release_gated: false },
     ],
     modules: [
       mod('hardening', 'Host hardening', 'Audit, safe fixes, reversible firewall, guarded SSH.', true, true, 'P2'),
