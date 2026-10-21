@@ -420,3 +420,16 @@ Still owed before any of this can be *claimed*, in the order the plan puts them:
 2. **Phase 3's host-shell run** on a real systemd (spike E) and its live-mode frontend pass.
 3. **P2b/P2c VM matrix**, CI on a runner, signed release artefacts (P9).
 
+
+## Handoff index (2026-10-21)
+
+This file records what is **built**. The remaining work lives in three new files, and the four documents cross-reference
+each other rather than repeating one another:
+
+- `FUTURE_PROGRESS.md` — the honest state of proof per phase, what "finished" means, the milestone order, and what is
+  likely to break first.
+- `FUTURE_TASKS.md` — the complete remaining checklist as 74 numbered tasks (`T1`–`T74`), including every named defect
+  and its fix, each with the files it touches and how you know it is done.
+- `docs/HANDOFF_NOTES.md` — observations: the gates that are trustworthy and what they do not prove, the Docker
+  behaviours that changed code, the patterns this codebase expects, and what cost time.
+- `PROMPT.md` — the brief to hand the next agent, including the standing security and verification rules.
