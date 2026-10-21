@@ -280,12 +280,32 @@ module cache and is not one.
 webhook deploying a host-built image rather than a payload-named one, and `VerifySource`. Everything the frontend
 asserts — status codes, `fields` keys, message wording, response shapes including explicit `null`s — matches.
 
+## Phase 6 — Operations (2026-10-21): in progress, compiling, **not tested**
+
+Same instruction as Phases 4 and 5: development only. The gates that ran for every unit below are
+`gofmt -l internal cmd` (empty), `go build ./internal/... ./cmd/...` and
+`go vet ./internal/objectstore ./internal/modules/notify ./internal/modules/runtime ./internal/platform ./internal/jobs`
+(both clean). **No Phase 6 test has been executed and none is claimed to pass, and migration 0006 has not been
+applied to a database yet** — a `goose up` against a scratch DB is the first thing Phase 6's test pass owes, because a
+bad migration blocks daemon boot for every later phase.
+
+| Area | Files | What it does |
+|---|---|---|
+| Migration | `internal/store/migrations/0006_operations.sql` | `metrics_samples` (the ring buffer: host and per-resource points in one table, `scope`/`ref_id` windowed by an index, `id` a ULID so ordering, pruning and range filtering share one key), `notification_channels` (sealed config, plaintext hint), `alert_rules` + `alert_firings` (dedupe per `(rule, subject)` with cooldown from `last_notified_at`), `backup_schedules` + `backup_runs` (`trigger` includes `pre_restore` and `pre_deploy`, which only internal code writes), `resource_cron_jobs` + `cron_job_runs`; four alert presets seeded **disabled**; seeds `metrics.*`, `alerts.eval_interval_s`, `notify.timeout_s`, `logs.*`, `cron.history_per_job`, `backup.timeout_s`. Additive — 0001–0005 untouched |
+| Host counters | `internal/platform/stats_{linux,other}.go` | `Sample()` reads cumulative CPU ticks from `/proc/stat` and rx/tx bytes from `/proc/net/dev` (excluding `lo`). These are counters, not rates: the caller differences two samples. Non-Linux builds return zeroes so the panel still runs where Docker does not |
+| Container counters | `internal/modules/runtime/docker_stats.go` | `Docker.Stats` with `stream=false` — one HTTP round trip that returns the same CPU/memory fields the streaming API does, so the sampler never holds a connection open per container |
+| Non-tty exec | `internal/modules/runtime/docker_exec_env.go` | `ExecWithEnv`: the create-and-attach sequence with a caller-supplied environment, so `PGPASSWORD`/`MYSQL_PWD`/`REDISCLI_AUTH` reach the container as env and never appear in argv (which the panel logs and the daemon exposes via `Inspect`). NUL-guarded on both lists, and the guard's error names the entry index rather than the value — an env entry is a secret |
+| Stream framing | `internal/modules/runtime/stdcopy.go` | `CopyDemuxed`, the binary-safe sibling of `demux`: `demux` reassembles log lines and strips timestamps, which is right for text and corrupts a dump. Frames are copied in 64 KiB chunks with a 4 MiB per-frame sanity bound, and a first byte that is not 1 or 2 is reported as "not multiplexed" rather than silently treated as payload |
+| Archive copy | `internal/modules/runtime/docker_archive.go` | `CopyFileOut` (exactly one regular file or an error; size bound checked on the header before reading; a short read is an error, not a half dump) and `CopyFileIn` (single-file tar upload, `mode.Perm()` only — a backup write cannot plant a setuid binary). Raw GET/PUT helpers because `get` decodes JSON and `call` marshals it |
+| Object store | `internal/objectstore/s3.go` | S3-compatible Put/Get/Stat/Delete over Signature V4, path style, no SDK: streaming upload of a pre-computed SHA-256 (a dump cannot be rewound), per-segment URI encoding so a key's slashes stay namespaces, endpoint refused if it carries `@`, and the XML error body (which is the only place `SignatureDoesNotMatch`/`NoSuchBucket` are stated) kept in the error up to 512 bytes |
+| Cron | `internal/jobs/cron.go` | 5-field parser and evaluator — `robfig/cron` is not a dependency and pulling one in for one file is not worth it. Vixie day-of-month/day-of-week OR semantics, `dow` 7 wraps to 0, `? L W #` and names refused, `Next` strictly after the instant at minute resolution with a four-year horizon so a never-matching expression terminates |
+
 ## Next
 
-**P6 — Operations** is next in the plan's order: `monitor` (host/container sampler → `metrics_samples` ring buffer,
-alert evaluator), `notify` (Telegram/Discord/email/webhook drivers), `databases` (Postgres/MySQL/Redis definitions),
-backups (dump via Docker exec → local/S3-compatible, retention, restore), role-management backing, cron jobs for
-resources, and log retention. Its tables come from a new additive migration; the sampler reuses the P3 runtime port.
+**P6 — Operations** continues: `monitor` (sampler → `metrics_samples`, alert evaluator), the API handlers for the 14
+routes, `databases` + backups (dump via `ExecWithEnv` → `CopyFileOut` → gzip → local or S3, retention, restore), the
+daemon loops, and the log-retention pass. Then P7 (extensibility) and P9 (release hardening); P8 is explicitly later.
+
 
 P5's own leftovers, none of them blocking: the frontend's Source & CI/CD tab (backend parity for it is what the mock
 defines, and `web/src/features/git/*` does not exist yet), monorepo fan-out per delivery (schema-level, belongs with
