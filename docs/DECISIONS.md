@@ -352,3 +352,63 @@ The behaviour is pinned without a daemon in `internal/modules/runtime/docker_exe
 API server on a unix socket that answers 404 for kill like 29.1.3 does), and proven with one on a real daemon in
 `test/spikes/p3_runtime_spike_test.go`: the exec ends with code 0 and the container's process table afterwards
 holds only its own command.
+
+## Phase 4 — projects, resources and the deployment engine (2026-10-21)
+
+**Resource status is derived, never stored.** `resources` has no `status` column, so `GET /resources` computes it
+in SQL from `desired_state`, `active_deployment_id` and the existence of an in-progress deployment. A stored status
+would be a second truth that can disagree with the routing pointer — and the disagreement would be the kind that
+shows a green badge over a domain that is not serving. Every screen now reads the same derivation the edge reads.
+
+**API-triggered container work is a durable job, not an inline call.** `stop`, `delete` and `cleanup` enqueue
+`deploy.reap` *inside the same transaction* that changes the row. A request must not hang on a Docker daemon that
+is slow or down, and a half-finished stop must be retried after a daemon restart; the queue gives both, and the
+job is idempotent (label-driven, ignores `ErrNotFound`). Stop additionally calls `reconcileAfter()` immediately,
+so the route drops without waiting for Docker to confirm the container is gone.
+
+**Restart and rollback reuse bytes, they do not re-resolve a tag.** Starting a stopped resource or rolling back
+creates a normal deployment whose image is the locally retained `codeplo/<slug>:<deployment-id>` of the deployment
+that last served, and `Dep.ReusesImage()` is therefore keyed on that pointer (`RollbackOf != ""`) rather than on the
+trigger. A mutable registry tag can have moved since the last deploy; reproducing "what actually ran" is the point
+of both operations. The engine's acquire step keeps one branch for both by skipping pull and build entirely.
+
+**A volume's directory is created when the volume is created.** If the host cannot prepare the path, the request
+that asked for it fails — not a deployment minutes later, after the user has moved on. `EnsureVolumeDir` makes the
+resource tree `0751` (no other tenant can traverse into it) and the leaf `0777`, because the container mounts it as
+an arbitrary uid — the image's own user, or a remapped one — which has no relationship to the panel's user.
+Deleting a resource never deletes volume data: a delete is a metadata operation, and the bytes are the part the
+operator cannot recreate.
+
+**The edge keeps a last-known-good upstream, and distinguishes "stopped" from "not yet known".**
+`domains.upstream` is written in the *same* transaction that flips `resources.active_deployment_id`. `sites()` then
+splits the two cases that both look like an empty derivation: a resource with `desired_state='stopped'` gets no
+route (the operator stopped it deliberately — routing to it would be a 502 dressed as a site), while a running
+resource whose derived lookup is momentarily empty keeps serving the cached address. A transient DB state that
+drops a live route is an outage the panel caused itself. Related: Docker renumbers container addresses when the
+daemon restarts, and the container that survives is exactly the one serving traffic, so boot recovery re-inspects
+each running resource's active container and repairs the recorded address before the first reconcile.
+
+**Deployment logs stream from the database, with a poll behind the event bus.** The bus is deliberately lossy
+(a full subscriber channel drops). A UI tab that silently lost build lines is worse than a 2s poll, so
+`GET /deployments/{id}/logs` reads `deployment_logs` and uses the bus only as a wake-up. It ends with
+`event: end` once the status is terminal, so browsers stop reconnecting to a finished deployment.
+
+**`cancelling` is not a status.** §3.8's prose names a `cancelling` state; the contract's enum does not contain it
+and the mock never renders it. The implementation keeps the two facts that state was standing for —
+`cancel_requested` plus an in-memory cancel of the running step — and the visible status stays `running` until the
+step observes the cancel and writes `cancelled`. Inventing a status to match a paragraph would break the parity
+test that exists to keep API and UI honest.
+
+**The panel never claims a hardening control the host does not have.** `platform.AppArmorEnabled()` reads
+`/sys/module/apparmor/parameters/enabled`; only when it says `Y` does the engine ask Docker for
+`apparmor=docker-default`. On a host without AppArmor, claiming the profile produces a container that cannot start,
+which is a worse outcome than the missing defence the claim pretended to add.
+
+**Contract additions follow the implementation.** `ResourceConfig` in `api/openapi.yaml` gained
+`release_command`, `rollout` and `published_ports` — all optional, all already honoured by the engine (release
+container before the switch; `stop_first` rollout for hosts too small for blue/green; owner-only 127.0.0.1 port
+publishing, audit-flagged). `make gen` was re-run; the route set is unchanged, so `stubs_gen.go` did not move.
+
+**Daemon start-up order is load-bearing.** Queue handlers are registered before `Jobs.Run` (the queue reads the
+handler map while running), and `Engine.Recover` runs before the first deployment is claimed, because "every handler
+can be re-run safely after a restart" is only true once the crashed run's leftovers have been accounted for.

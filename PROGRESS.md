@@ -1,12 +1,13 @@
-# PROGRESS: codeplo — P0 and P1 met (with two recorded gaps), P2 implemented and gate-verified
+# PROGRESS: codeplo — P0–P3 met (P3 host-shell run owed), P4 implemented and compiling
 
-Status: **Phase 2 (P2a edge + audit + safe fixes, P2b reversible firewall, P2c guarded SSH) is
-implemented, compiled, race-tested and deployed on a real systemd host.** P2c stays behind
-`hardening.apply_tier3`, default off, as the plan requires until its VM matrix passes.
-Phase 3 (terminal & logs): foundation built and gate-verified; tickets, host-shell helper, Docker
-adapter, handlers, daemon wiring, units and installer changes are **written but never compiled or run**
-(authored in a sandbox without a Go toolchain). See "Phase 3 — second pass" below.
-Evidence table below; full detail in `TEST_REPORT.md`, judgment calls in `docs/DECISIONS.md`.
+Status: **Phase 4 (projects, resources, deployments) is implemented end to end in the backend** — migration
+`0004_workloads.sql`, the isolation policy, the container `Manager` port, the §3.8 engine, the REST handlers and
+the daemon wiring. `go build ./...`, `go vet ./...` (which compiles the test files too) and `gofmt -l .` are clean.
+**No test has been run for Phase 4**: the instruction for this stretch of work is development only, with compile
+checks, and the test-and-fix pass is deliberately held to the end of all phases. Phase 2 is deployed and
+gate-verified on a real systemd host; Phase 3's foundation and container runtime are verified against real Docker,
+while its host-shell run is still owed.
+Evidence tables below; full detail in `TEST_REPORT.md`, judgment calls in `docs/DECISIONS.md`.
 
 ## Phase 2 — what was built
 
@@ -167,7 +168,8 @@ passes**, which is the plan's own gate.
 - VM lab (`test/vm/*`) for the hardening fault-injection matrix; release gate for P2b/P2c.
 - CI has never run on a runner (also the only place the RSS budget is meaningful).
 - No signed release; `make dist` is the only artefact producer until P9.
-- `/resources/{id}/domains` does not check the resource exists (no `resources` table until P4).
+- **Phase 4 has no executed test**: the engine, the handlers and the edge change compile but are unproven; the
+  §3.8 fault-injection matrix and the mock-parity conformance run are the gate that is actually missing.
 - TOTP replay guard in-memory; sqlc scaffolded but unused; `RouteDef.NoCSRF` declared-unused.
 
 ## Handoff brief — what Phase 3 still owes (for the next agent)
@@ -232,17 +234,42 @@ operator when a test needs it.
 - Left on WSL from the P2/P3 sessions (owned by that work, not the repo): a `/usr/bin/caddy` copy, `/root/spikes`,
   `/root/spikeC.log`, `/root/codeplo-fixture`.
 
+## Phase 4 — projects, resources, deployments (2026-10-21): implemented, compiling, **not tested**
+
+The instruction for this stretch was development only — `go build`, `go vet` (which compiles the test files) and
+`gofmt` are the gates that ran. **No Phase 4 test has been executed**, and none is claimed to pass; the test-and-fix
+pass is held to the end of the phases. `go vet ./...` being clean means the package set including tests type-checks.
+
+| Area | Files | What it does |
+|---|---|---|
+| Migration | `internal/store/migrations/0004_workloads.sql` | `projects`, `environments`, `resources` (no status column — status is derived), `resource_env_vars`, `volumes`, `resource_sources`, `resource_credentials`, `deployments` (digest + `retained` + `upstream` + `heartbeat_at` + `observe_until` + `rollback_of` + `preflight_json`), `deployment_logs`; seeds `deploy.build_timeout_s`, `deploy.release_timeout_s`, `deploy.max_log_lines`, `deploy.stop_old_first`; additive, 0001–0003 untouched |
+| Isolation policy | `internal/policy/*.go` | every §3.11 control, and `Approved` is mintable **only** by `Enforce` — `CreateContainer` takes `Approved` and re-checks it, so a policy-violating container cannot be created through the port |
+| Container port | `internal/modules/runtime/{manage,docker_manage}.go` | `Manager` extends the frozen `Runtime`: networks, create/start/stop/kill/remove, inspect, list by label, wait, image inspect/tag/remove, prune. Cancellation is container lifecycle + context, never an exec interrupt (measured: this daemon cannot kill one) |
+| Engine | `internal/modules/deploy/{engine,steps,observe,recover,preflight,retention,logs,redact,config,db,service}.go` | the full §3.8 state machine including `observing` → `succeeded`, automatic rollback to the previous container when the window fails, per-step timeouts, disk watch, RAM-capped builds, release-command container, label-driven idempotent cleanup, boot recovery (`interrupted` + orphan sweep + **refresh of the active container's address after a runtime restart**), image retention, secret redaction from logs |
+| API | `internal/api/handlers_{projects,resources,deployments,env}.go` | `/projects` (+ tree, `POST`), `/projects/{id}/environments`, `/resources` CRUD with derived status, `start`/`stop`/`restart`, `/resources/{id}/policy`, `/resources/{id}/deployments`, `/deployments/{id}` + `/logs` (SSE) + `/cancel` + `/rollback`, `/resources/{id}/env` (write-only secrets, step-up to replace a secret), `/resources/{id}/volumes`, `POST /system/cleanup` |
+| Durable side effects | `deploy.reap` job in `service.go` | stop/delete enqueue the container work in the same transaction that changes the row, so a down Docker daemon cannot strand a half-stopped resource |
+| Edge | `internal/modules/edge/reconcile.go` | `domains.upstream` becomes a last-known-good written with the switch; stopped resources get no route, running-but-unresolved ones keep serving the cached address |
+| Domains API | `handlers_domains.go` | the debt P2 recorded is now paid: `GET`/`POST /resources/{id}/domains` 404 when the resource does not exist (fixtures in `edge_test.go` create real resources) |
+| Wiring | `cmd/codeplod/main.go`, `internal/api/router.go` | engine built when the `deploy` module is enabled, registered on the queue **before** `Jobs.Run`, `Recover` before the first claim, bus publish + edge reconcile injected; `platform.AppArmorEnabled()` decides whether the profile is claimed |
+| Contract | `api/openapi.yaml`, generated `models.gen.go` / `schema.d.ts` | `ResourceConfig` gained `release_command`, `rollout`, `published_ports` (the engine already honoured them); generators re-run, route stubs unchanged |
+
+
+
 ## Next
 
-Phase 3's code is in and green on every local gate, and its container-runtime behaviour is now verified
-against a real Docker daemon — including the teardown defect that run found and that the code had documented
-as working when it was not. What Phase 3 still needs is the host-shell run on a real systemd (spike E: host
-and container shells reachable through the panel, refusal without an operator identity, root off by default
-and step-up-gated when on, close-the-tab ends the PTY, an audit row per session, logs with backpressure that
-survive reconnects, the seven-artefact installer test) and the frontend's live-mode pass.
+**P5 — Git & CI/CD** is next in the plan's order: `git_connections`/`webhook_deliveries`/`deploy_hooks` tables,
+the `git` module (clone via per-resource ed25519 deploy key with the private half encrypted and never returned,
+webhook receiver with HMAC-SHA256 + delivery-id replay protection + rate limits, deploy-hook tokens hashed at
+rest and rotatable, `[skip deploy]` and branch/path-filter gates), the endpoints `/git/connections`,
+`/resources/{id}/source`, `/resources/{id}/deploy-key`, `/resources/{id}/deploy-hook`, `/webhooks/github`,
+`/hooks/deploy/{token}`, and `deploy/github-actions/codeplo-deploy.yml`. `resource_sources` and
+`resource_credentials` already exist from 0004 and `builders.CLI` already clones through a credential helper —
+P5 fills the seam between them rather than inventing a second path.
 
-Phase 4 (projects & deployments) is next in the plan's order and owns migration `0004_workloads.sql`;
-the `runtime.Runtime` port and the `codeplo.resource` label are the interfaces it builds on. Its delegation
-prompt was handed to that agent on 2026-10-21 and re-issued on the same date, now including the Docker
-teardown facts above (a deployment engine that creates containers must not inherit the "hang up and hope"
-assumption).
+Still owed before any of this can be *claimed*, in the order the plan puts them:
+1. **Phase 4 tests** — fault-injection over every §3.8 row (crash mid-deploy, reboot before the switch, cancel
+   after creation, healthy-then-unhealthy → auto rollback, release-command failure, disk/RAM refusal, hung step),
+   contract conformance of the new handlers against `web/src/mock`, and the frontend's live-mode pass.
+2. **Phase 3's host-shell run** on a real systemd (spike E) and its live-mode frontend pass.
+3. **P2b/P2c VM matrix**, CI on a runner, signed release artefacts (P9).
+
