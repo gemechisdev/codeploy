@@ -1,6 +1,6 @@
 # FUTURE PROGRESS — where codeplo stands and what "finished" means
 
-Snapshot: 2026-10-21, `main` at `1cbe023`. Companion files: `PROGRESS.md` (what is built, per phase, with the
+Snapshot: 2026-10-21 (post T1/T2). Companion files: `PROGRESS.md` (what is built, per phase, with the
 evidence tables), `docs/DECISIONS.md` (why each judgment call went the way it did), `FUTURE_TASKS.md` (the exhaustive
 remaining checklist), `docs/HANDOFF_NOTES.md` (observations, host quirks, what to avoid), `PROMPT.md` (the brief for
 the next agent).
@@ -18,8 +18,8 @@ built P0–P7's backend under a "code only, compile-checked, no tests" instructi
 | P3 Terminal + logs | complete | race-tested (13 packages ok); container half runtime-verified against real Docker 29.1.3; **host-shell run (spike E) never executed**; frontend live-mode pass never done |
 | P4 Projects + deploys | complete | **compiles only — zero tests executed**; §3.8 fault-injection matrix owed |
 | P5 Git + CI/CD | complete | **compiles only**; the HMAC/replay/skip-deploy/oversize-clone proofs are unrun; reusable Actions workflow never executed |
-| P6 Operations | backend complete | **compiles only; migration 0006 has never been applied to any database**; frontend exists mock-driven, never run live |
-| P7 Extensibility | templates (J6) + GitHub App (G5) + commit status (G7) + PR previews (G8) complete; **J4 extensions and J7 MCP not started** | **compiles only; migration 0007 never applied**; `codeplo templates check` and `codeplo github-app check` were run by hand against scratch inputs and behaved as designed |
+| P6 Operations | backend complete | **compiles only**; migration 0006 applied successfully via `store.Migrate` (T1); frontend exists mock-driven, never run live |
+| P7 Extensibility | templates (J6) + GitHub App (G5) + commit status (G7) + PR previews (G8) complete; **J4 extensions and J7 MCP not started** | **compiles only**; migration 0007 applied successfully via `store.Migrate` (T1); `codeplo templates check` and `codeplo github-app check` were run by hand against scratch inputs and behaved as designed |
 | P8 Scale/advanced access | not started (explicitly later) | — |
 | P9 Release hardening | not started | no signed artefacts, no `codeplo update`, arm64 never built |
 

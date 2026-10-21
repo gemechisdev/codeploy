@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/codeplo/codeplo/internal/app.Version=$(VERSION) -X github.com/codeplo/codeplo/internal/app.Commit=$(COMMIT) -X github.com/codeplo/codeplo/internal/app.BuiltAt=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: gen lint test build run web
+.PHONY: gen lint test migrate-check build run web
 
 # gen: TS client types from openapi.yaml, later-phase route stubs (Go) from the same file, sqlc.
 # oapi-codegen generates models only (api/oapi-codegen.yaml); handlers are hand-written, see docs/DECISIONS.md.
@@ -19,6 +19,11 @@ lint:
 
 test:
 	go test ./...
+
+# migrate-check: apply migrations 0001–0007 to a temp SQLite DB via store.Migrate and assert version 7.
+# Does not boot the daemon. Fails non-zero on any migration error (T1/T2).
+migrate-check:
+	go test -count=1 ./internal/store/ -run TestMigrateAllToV7
 
 web:
 	cd web && npm ci && npm run build

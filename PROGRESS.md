@@ -421,6 +421,16 @@ Still owed before any of this can be *claimed*, in the order the plan puts them:
 3. **P2b/P2c VM matrix**, CI on a runner, signed release artefacts (P9).
 
 
+## Group A / T1–T2 — migrations 0001–0007 proven (2026-10-21)
+
+| Check | Result |
+|---|---|
+| `store.Migrate` on empty SQLite via `TestMigrateAllToV7` | **PASS** — goose reports OK for 0001…0007, `goose_db_version=7` |
+| Fresh `codeplod` boot with `CODEPLO_DATA_DIR` = empty temp dir | **PASS** — same migration log, creates `codeplo.db` + `master.key`, exits cleanly on SIGTERM (edge reconcile warns without Caddy, expected) |
+| `make migrate-check` / `scripts/migrate_check.sh` | Added; runs the unit test above, non-zero on failure |
+
+Migrations 0006 and 0007 have now met a real database. T3–T5 (seed assertions, index EXPLAIN, FK survival) remain open.
+
 ## Handoff index (2026-10-21)
 
 This file records what is **built**. The remaining work lives in three new files, and the four documents cross-reference
