@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/codeplo/codeplo/internal/jobs"
@@ -135,6 +136,33 @@ func (e *Engine) EnsureVolumeDir(slug, name string) error {
 	return os.Chmod(dir, 0o777)
 }
 
+// volumeSlugRe is the panel's resource-slug grammar (lowercase, digits, "-", 1-40 characters, no edge dash), which
+// is also the only name a volume directory is ever given. Removal is the one place in this file where the name comes
+// from a value the engine did not validate on the way in — a preview's slug is derived from a hostname row — so the
+// name is checked instead of trusted, and anything else is refused rather than joined.
+var volumeSlugRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$`)
+
+// RemoveVolumeDir deletes one resource's volume tree, and nothing else.
+//
+// It is confined to the volumes root by two independent rules: the name must be a slug the panel could have made,
+// and the joined path must still be a direct child of the root. The second one catches a misconfigured
+// CODEPLO_VOLUMES_ROOT (an empty root would make the join a filesystem path the panel does not own), and an
+// operator's data directory is not something a cleanup job discovers by accident.
+//
+// A missing directory is success: this runs from a retried job, and the second attempt at a removal that already
+// happened must not fail forever.
+func (e *Engine) RemoveVolumeDir(slug string) error {
+	if !volumeSlugRe.MatchString(slug) {
+		return fmt.Errorf("refused to remove a volume directory named %q: it is not a resource slug", slug)
+	}
+	root := filepath.Clean(filepath.FromSlash(e.cfg.VolumesRoot))
+	dir := filepath.Join(root, slug)
+	if filepath.Dir(dir) != root {
+		return fmt.Errorf("refused to remove %q: it is not under the volumes root", dir)
+	}
+	return os.RemoveAll(dir)
+}
+
 // ImageTag is the local tag a deployment's image is retained under, which is also what a rollback or a restart
 // without a rebuild asks Docker for.
 func ImageTag(slug, deploymentID string) string { return "codeplo/" + slug + ":" + deploymentID }
@@ -148,6 +176,11 @@ type ReapRequest struct {
 	ResourceID string   `json:"resource_id"`
 	Slug       string   `json:"slug"`
 	Images     []string `json:"images,omitempty"`
+	// RemoveVolumeDirs also deletes the resource's own volume directory. Only a workload whose data is disposable by
+	// definition asks for it — a pull-request preview, whose directory exists because one branch happened to be
+	// opened. Removing a service's data when an operator removes the service is not the panel's decision to make on
+	// their behalf, so the resource delete route leaves this off.
+	RemoveVolumeDirs bool `json:"remove_volume_dirs,omitempty"`
 }
 
 // EnqueueReap writes the job inside the caller's transaction, so a resource stop/delete and its cleanup work commit
@@ -199,6 +232,13 @@ func (e *Engine) reap(ctx context.Context, in ReapRequest) error {
 			if err := e.rt.RemoveImage(ctx, ref); err != nil && !errors.Is(err, runtime.ErrNotFound) {
 				return err
 			}
+		}
+	}
+	// Last, because a container still mounting a directory that has been deleted underneath it is the failure mode
+	// nobody can read: the process keeps writing to an unlinked inode and the operator sees an empty volume.
+	if in.RemoveVolumeDirs {
+		if err := e.RemoveVolumeDir(in.Slug); err != nil {
+			return err
 		}
 	}
 	e.syncEdge(ctx)

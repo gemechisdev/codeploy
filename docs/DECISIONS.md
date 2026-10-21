@@ -799,3 +799,12 @@ this host — and an operator who turns it on has said they want that. The three
 decided once: the same reason the engine's build timeout is a setting, and the reason the API validates each range.
 Neither does anything without `CODEPLO_PREVIEW_DOMAIN`, because a hostname under a base domain that has no wildcard
 record is a route that answers nothing.
+
+**A preview's volume directory goes with it. A service's does not.** Deleting a resource has always left its bind
+mounts under `<VolumesRoot>/<slug>/` alone — an operator who removes a service and re-adds it expects their data to
+survive, and the panel has no verdict on whether a directory full of uploads is trash. A preview is different in kind
+rather than in degree: the directory was created by a branch that no longer exists, it holds whatever an unmerged
+build wrote into it, and nothing on this host will ever name it again. So `ReapRequest` carries one flag for the
+difference, the delete route never sets it, and only a preview's teardown does — and it sets it only while no other
+preview row still claims the same hostname, because a pull request closed and reopened gets the same slug and the
+same directory, and destroying that would be this transaction deleting a workload that exists now.
