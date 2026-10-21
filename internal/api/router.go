@@ -22,6 +22,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules"
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/edge"
+	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/webui"
@@ -51,7 +52,10 @@ type Server struct {
 	HostShells terminal.Spawner  // privileged PTY helper client; nil until wired
 	// Deploy is the P4 deployment engine. Nil until the daemon wires the runtime and the job queue to it; the
 	// resource handlers then answer 500, because accepting a resource nothing can deploy would be a lie.
-	Deploy  *deploy.Engine
+	Deploy *deploy.Engine
+	// Git is the P5 source layer (connections, deploy keys, hooks, webhook verification). It is a database-only
+	// service, so wiring it cannot fail; it stays nil only when the daemon built the server without it.
+	Git     *git.Service
 	Started time.Time
 	Version string
 	Commit  string
@@ -72,6 +76,7 @@ func (s *Server) Routes() []RouteDef {
 	defs = append(defs, s.deployRoutes()...)
 	defs = append(defs, s.deploymentRoutes()...)
 	defs = append(defs, s.envRoutes()...)
+	defs = append(defs, s.gitRoutes()...)
 	implemented := map[string]bool{}
 	for _, d := range defs {
 		implemented[d.Method+" "+d.Path] = true

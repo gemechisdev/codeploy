@@ -20,6 +20,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/deploy/builders"
 	"github.com/codeplo/codeplo/internal/modules/edge"
+	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/platform"
@@ -94,6 +95,13 @@ func run() error {
 		} else if n > 0 {
 			slog.Info("closed terminal sessions left open by a previous run", "count", n)
 		}
+	}
+
+	// Git sources: connections, deploy keys, webhook secrets and hook tokens. Everything here is database and
+	// master-key work, so it wires without a container runtime -- an operator can configure a source, and the key
+	// it needs, before Docker is reachable.
+	if srv.Reg.Enabled(ctx, "git") {
+		srv.Git = git.New(db, key)
 	}
 
 	// Deployment engine. Recovery runs before the queue starts: a deployment the previous process was mid-way
