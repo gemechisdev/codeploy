@@ -590,3 +590,51 @@ where the ring buffer has a real number. Before the sampler's first tick there i
 readings stand in — which is the honest fallback the all-zero placeholders were not. `security_score` and
 `pending_changes` are two stored-state counts (last audit run, unconfirmed hardening changes) rather than a live
 hardening run, because the status endpoint is on every page load and must never shell out.
+
+**Operations services are built before the job queue starts, and before the deploy engine.** Two reasons, one order.
+`databases` registers a queue handler and owns boot recovery (`Recover` closes attempts a dead process left
+`running`), and both have to finish before a worker could pick up work; the deploy engine then needs the databases
+service as its pre-deploy hook. Wiring them after `go srv.Jobs.Run(ctx)` would mean a crash-recovery race and a
+nil hook, and neither shows up in a compile.
+
+**The Docker gate grew to `monitor` and `databases`.** Sampling a host's containers and dumping a database both need
+the socket, and neither needs permission to *create* a container — which is why `monitor.Containers` and
+`databases.Ops` are two-method and five-method slices of `runtime.Manager` rather than the whole port. A panel with
+monitoring on and deploys off still has to know how many containers are up.
+
+**Every loop re-reads its own interval from `settings` on each pass.** A ticker built once from a setting is a
+setting that needs a daemon restart, and the settings page is the only place an operator can change it. The cost is
+one indexed `SELECT` per tick against a table the tick is going to write anyway.
+
+**The minute loops align to the clock instead of starting a 60-second ticker.** `backup_schedules.cron` and
+`resource_cron_jobs.cron` are minute-resolution, and a ticker that drifts to 12:00:59 evaluates minute 12:00 while
+the database means 12:01. Each pass gets a 55-second context so a hung sweep cannot outlive its own minute or hold
+shutdown.
+
+**A half-configured `CODEPLO_S3_*` set refuses to boot.** The alternative is a daemon that comes up "successfully"
+and starts writing dumps to a destination the operator thinks is off-host. The error names the specific variables
+missing rather than the values present, so it is safe to paste into a ticket.
+
+**Pre-deploy backups run before the release command, not before the switch.** A release command is where migrations
+run, and the snapshot's purpose is that the data the *previous* version was serving reaches disk before anything new
+can change it. Putting the hook in the switch step would have made every `--dangerous`-style migration an
+unrecoverable event, which is the accident this feature exists to prevent.
+
+**`PreDeploy` is a function field on `deploy.Deps`, and nil is a logged pass.** Making the deploy module import
+`databases` would invert the dependency for a safety net, and refusing to deploy when an optional module is switched
+off is a worse failure than deploying without the snapshot. The step writes which of the two happened into the
+deployment log, because "was my database backed up before that deploy?" has to be answerable from the log alone.
+
+**Log retention deletes whole deployments, never lines inside one.** A truncated middle would be read as "the build
+printed nothing after line 400". Active and retained deployments are exempt from both passes: they are the two logs
+an operator is actually pointed at, and if the budget cannot be met without touching them the pass warns instead of
+cutting into a log still in use.
+
+**A cron job's output is redacted before it is stored, and stdout and stderr are merged.** `cron_job_runs` is a
+plaintext table and a maintenance command sees its container's environment, so the resource's own secret values are
+masked out of the tail on the way in. Merging the two streams is what a history row needs: the lines of one failure
+in the order the process wrote them, not two columns a reader has to interleave by hand.
+
+**`codeplo cron` is dispatched before the shared CLI flag set parses anything.** `cron add` carries its own flags and
+an argv after `--`, and the flag package would stop at `find` and then exit on `-mtime`. One early dispatch keeps
+the command word intact, the same reason `pty-helper` is dispatched there.
