@@ -149,14 +149,40 @@ func readVolumes(ctx context.Context, q git.Querier, resourceID string) ([]volum
 	return out, rows.Err()
 }
 
-// List is every preview on the panel, soonest to expire first — the CLI's read, and the answer to "what is this host
-// running for pull requests right now".
-func (s *Service) List(ctx context.Context) ([]Preview, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+previewColumns+` FROM pr_previews ORDER BY expires_at, id`)
+// Row is a preview with the two facts its own table cannot state: which service it previews, by the name an operator
+// would recognise, and whether the resource it was built as is still there. A hostname on its own is not the answer
+// to "what is this host running for pull requests" — the parent says what it is a preview *of*, and a row whose
+// resource is gone says the sweep has work to do that the operator may have started by hand.
+type Row struct {
+	Preview
+	ParentName   string `json:"parent_name"`
+	ParentSlug   string `json:"parent_slug"`
+	ResourceGone bool   `json:"resource_gone"`
+}
+
+func (s *Service) Rows(ctx context.Context) ([]Row, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+previewColumns+`,
+			COALESCE(pa.name,''), COALESCE(pa.slug,''), (ch.id IS NULL)
+		FROM pr_previews p
+		LEFT JOIN resources pa ON pa.id=p.parent_resource_id
+		LEFT JOIN resources ch ON ch.id=p.preview_resource_id
+		ORDER BY p.expires_at, p.id`)
 	if err != nil {
 		return nil, err
 	}
-	return scanPreviews(rows)
+	defer rows.Close()
+	var out []Row
+	for rows.Next() {
+		var r Row
+		var gone int
+		if err := rows.Scan(append(r.fields(), &r.ParentName, &r.ParentSlug, &gone)...); err != nil {
+			return nil, err
+		}
+		r.Preview = r.finish()
+		r.ResourceGone = gone != 0
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // resourceExists is the sweep's question about a row it is about to act on. The preview resource and its parent are

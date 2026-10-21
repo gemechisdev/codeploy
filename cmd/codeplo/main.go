@@ -32,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | github-app check|repos | pty-helper (systemd only)")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | github-app check|repos | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -62,6 +62,12 @@ func run(cmd string, args []string) error {
 	// data directory nor the database, so it answers "is this App usable?" before anything depends on it.
 	if cmd == "github-app" {
 		return githubAppCommand(args)
+	}
+	// previews reads the database and the environment and writes nothing: taking a preview down is the daemon's sweep,
+	// on the process that owns the engine and the containers. It opens the data directory itself, so it is dispatched
+	// before the shared flag set like the other reader commands.
+	if cmd == "previews" {
+		return previewsCommand(args)
 	}
 	cfg, err := config.Load()
 	if err != nil {

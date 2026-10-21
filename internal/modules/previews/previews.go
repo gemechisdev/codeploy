@@ -96,13 +96,27 @@ func New(d Deps) *Service {
 	return &Service{db: d.DB, eng: d.Engine, queue: d.Queue, base: base, now: now}
 }
 
-// BaseDomainProblem explains why this panel cannot build previews, or "" when the configured base domain is
-// usable. It is separate from Enabled because the two reasons an operator gets an answer of "off" need different
-// sentences: a flag they can turn on, and a domain they have to point at this host first.
+// BaseDomainProblem explains why this panel cannot build previews, or "" when it can. It is separate from Enabled
+// because the two reasons an operator gets an answer of "off" need different sentences: a flag they can turn on, and
+// a domain they have to point at this host first.
 func (s *Service) BaseDomainProblem() string {
+	if p := s.engineProblem(); p != "" {
+		return p
+	}
+	return s.domainProblem()
+}
+
+// engineProblem and domainProblem are the two halves apart, because `codeplo previews check` reads the database and
+// the environment and has no engine of its own — a command that reported "the engine is not available" about every
+// panel would answer nothing. The caller that builds or reaps a preview still asks both, through BaseDomainProblem.
+func (s *Service) engineProblem() string {
 	if s.eng == nil || s.queue == nil {
 		return "The deployment engine is not available on this panel"
 	}
+	return ""
+}
+
+func (s *Service) domainProblem() string {
 	if s.base == "" {
 		return "No preview base domain is configured (set CODEPLO_PREVIEW_DOMAIN)"
 	}
@@ -122,14 +136,15 @@ func (s *Service) Enabled(ctx context.Context) bool {
 	return s.flagOn(ctx, flagPreviews)
 }
 
-// Status is what `codeplo previews check` prints: the two switches read separately, so an operator who turns the
-// flag on and sees nothing happen is told which one is still missing.
+// Status is the independent facts `codeplo previews check` prints. There is deliberately no verdict field: whether a
+// delivery ends up with a preview also needs the engine that builds it, which the command reading the database does
+// not carry — so a status that answered "off" from a process that could never have built one would be a fact about
+// the reader, not about the panel. The daemon, which holds every part, composes the verdict for its boot log.
 type Status struct {
 	BaseDomain    string `json:"base_domain"`
 	DomainReady   bool   `json:"domain_ready"`
 	DomainNote    string `json:"domain_note"`
 	FlagOn        bool   `json:"flag_on"`
-	Enabled       bool   `json:"enabled"`
 	TTLHours      int    `json:"ttl_hours"`
 	MaxPerService int    `json:"max_per_service"`
 	MemoryMB      int    `json:"memory_mb"`
@@ -137,10 +152,9 @@ type Status struct {
 }
 
 func (s *Service) Check(ctx context.Context) Status {
-	st := Status{BaseDomain: s.base, DomainNote: s.BaseDomainProblem()}
+	st := Status{BaseDomain: s.base, DomainNote: s.domainProblem()}
 	st.DomainReady = st.DomainNote == ""
 	st.FlagOn = s.flagOn(ctx, flagPreviews)
-	st.Enabled = st.DomainReady && st.FlagOn
 	st.TTLHours = int(s.ttl(ctx) / time.Hour)
 	st.MaxPerService = s.limit(ctx, keyMax, defMax)
 	st.MemoryMB = s.limit(ctx, keyMemoryMB, defMemoryMB)

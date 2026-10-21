@@ -22,6 +22,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/git/providers"
+	"github.com/codeplo/codeplo/internal/modules/previews"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/templates"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
@@ -185,6 +186,44 @@ func run() error {
 		eng.Register(srv.Jobs) // handlers are a map the queue reads while running: register, then start
 		if err := eng.Recover(ctx); err != nil {
 			slog.Warn("deployment recovery incomplete; routes and containers may need reconciling", "err", err)
+		}
+	}
+
+	// Pull-request previews. The service needs the engine it builds with and the queue a teardown's reap is written
+	// to, so a panel without the deploy module has none — and the sweep starts here rather than in the receiver,
+	// because the pass that takes expired and orphaned previews down is the module's promise, not a delivery's.
+	// It runs with the feature flag off and with the base domain gone: an operator who turns previews off has asked
+	// for their containers to stop running on this host.
+	if srv.Deploy != nil {
+		pv := previews.New(previews.Deps{
+			DB: db, Engine: srv.Deploy, Queue: srv.Jobs, BaseDomain: config.PreviewBaseDomain(), Now: time.Now,
+		})
+		srv.Preview = pv
+		// One pass before the loop sleeps: previews whose lifetime ended while this daemon was down are the reason
+		// the sweep exists, and a branch nobody merged keeps holding the parent's credentials for the wait.
+		go func() {
+			if n, err := pv.Sweep(ctx); err != nil {
+				slog.Warn("preview sweep at boot failed", "removed", n, "err", err)
+			} else if n > 0 {
+				slog.Info("preview sweep took previews down", "removed", n, "when", "boot")
+			}
+			everyMinute(ctx, "preview sweep", func(c context.Context) error {
+				n, err := pv.Sweep(c)
+				if n > 0 {
+					slog.Info("preview sweep took previews down", "removed", n)
+				}
+				return err
+			})
+		}()
+		st := pv.Check(ctx)
+		// The domain and the flag are reported separately because they fail differently: one needs a DNS record and
+		// the other needs a click. This is the one place the verdict is honest, because this is the process that has
+		// the engine a preview is built with.
+		slog.Info("pull request previews", "base_domain", st.BaseDomain, "domain_ready", st.DomainReady,
+			"flag", st.FlagOn, "enabled", pv.Enabled(ctx), "live", st.Live, "ttl_hours", st.TTLHours,
+			"max_per_service", st.MaxPerService, "memory_mb", st.MemoryMB)
+		if st.DomainNote != "" {
+			slog.Info("pull request previews are not naming anything", "reason", st.DomainNote)
 		}
 	}
 	go srv.Jobs.Run(ctx)

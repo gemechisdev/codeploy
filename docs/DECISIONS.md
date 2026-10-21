@@ -846,3 +846,22 @@ repository by the accident that its id was minted later. Accidents are not a rul
 subtle: a preview built from the base branch, deployed under a name that says it is a pull request. The resolution
 query now excludes resources that a preview row claims, and a preview's head ref only ever arrives through a
 `pull_request` delivery, which is the only thing that knows which branch it is supposed to be.
+
+**The sweep runs on the daemon, at boot and then on the minute — never from the webhook receiver.** A teardown needs
+the engine and the queue, and the only process that has both is `codeplod`, so the receiver's job ends at the
+transaction that says what was decided. The first pass runs before the loop sleeps, because the rows it exists to
+reconcile are the ones a stopped daemon left behind: a preview whose lifetime ended while nothing was running keeps
+holding its parent's credentials, and "the sweep will get it in a minute" from a process that just booted is a minute
+of unnecessary exposure. The loop is the same `everyMinute` helper the operations loops use — aligned to the clock
+boundary, 55-second bounded pass — because `expires_at` is minute-resolution in the database and a pass that starts
+mid-minute evaluates a different set of rows than the one that wrote them.
+
+**`codeplo previews` reads, and `check` reports facts with no verdict.** The command opens the database and reads the
+environment, so it can say what the base domain is, whether it parses, what the flag and the three caps are, and how
+many previews are live — but it has no deployment engine, and a status object that answered `enabled: false` from a
+process that could never have built a preview would be a statement about the reader rather than the panel. So
+`Status` carries no verdict field, the daemon composes its own boot line from the same status plus `Enabled`, and the
+CLI's non-zero exit comes from the flag being on with something missing (`git.preview_deploys` off is the panel doing
+what it was told, which is never a failure). `list` gained a state column for the same reason it needed the parent's
+name: a hostname alone cannot say whether the container behind it still exists, and a row whose resource is gone is
+the sweep's bookkeeping to finish, which an operator who deleted it by hand needs to see rather than infer.
