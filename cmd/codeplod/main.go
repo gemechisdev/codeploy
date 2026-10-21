@@ -22,6 +22,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
+	"github.com/codeplo/codeplo/internal/modules/templates"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/platform"
 )
@@ -102,6 +103,17 @@ func run() error {
 	// it needs, before Docker is reachable.
 	if srv.Reg.Enabled(ctx, "git") {
 		srv.Git = git.New(db, key)
+	}
+
+	// Template catalog: the embedded bundle plus the operator's drop-in directory. The bundled files are read from
+	// the binary, so wiring it cannot fail; a file that does not parse is logged here, which is where an operator
+	// who has just dropped one in is looking before they try the panel.
+	if srv.Reg.Enabled(ctx, "templates") {
+		srv.Templates = &templates.Service{Catalog: templates.Catalog{Dir: cfg.TemplatesDir}, DB: db, Key: key}
+		_, issues := srv.Templates.List()
+		for _, is := range issues {
+			slog.Warn("template file is not in the catalog", "file", is.File, "reason", is.Reason)
+		}
 	}
 
 	// Operations services: channels, metrics, backups and resource cron. Built before the deploy engine because the

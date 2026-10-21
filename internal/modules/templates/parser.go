@@ -3,6 +3,7 @@ package templates
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,6 +29,28 @@ var secretNameRe = regexp.MustCompile(`(?i)(PASSWD|PASSWORD|PASSPHRASE|SECRET|TO
 // metaLine is one metadata line: "# port: 5432". Coolify's templates write their headers this way, so a file from
 // that catalog arrives with its header already in the shape this parser reads.
 var metaLine = regexp.MustCompile(`^#[ \t]*([a-zA-Z][a-zA-Z0-9_-]*)[ \t]*:[ \t]*(.*)$`)
+
+// volumeNameRe is the name rule the panel's volume editor enforces, copied here rather than imported from
+// internal/api so this package does not depend on the HTTP layer. A volume's name becomes a directory under the
+// resource's data root, which is why it takes fewer characters than Docker's own naming rule allows.
+var volumeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,38}$`)
+
+// protectedTargets are the mount points a volume would erase the image's own files with. They are the same paths
+// the volume API refuses, so a template cannot ask for one and then fail its first deploy.
+var protectedTargets = []string{"/", "/etc", "/proc", "/sys", "/dev", "/var/run", "/var/lib/docker"}
+
+func protectedTarget(p string) string {
+	clean := strings.TrimRight(filepath.ToSlash(p), "/")
+	if clean == "" {
+		clean = "/"
+	}
+	for _, bad := range protectedTargets {
+		if clean == bad {
+			return bad
+		}
+	}
+	return ""
+}
 
 const (
 	defaultPasswordLen = 32
@@ -102,7 +125,7 @@ func Parse(raw []byte, key, source string) (*Template, error) {
 	if t.RecommendedMemoryMB < 16 {
 		return nil, fmt.Errorf("# memory: %d is below the 16 MB the panel will not let a resource ask for", t.RecommendedMemoryMB)
 	}
-	if err := t.readPlaceholders(root); err != nil {
+	if err := t.readPlaceholders(t.envNode); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -139,6 +162,7 @@ func (t *Template) readBody(root *yaml.Node, body []byte) error {
 			len(svcs), strings.Join(names, ", "))
 	}
 	t.Service = svcs[0].key
+	t.envNode = child(svcs[0].val, "environment")
 	// A resource this panel deploys runs the image's own command, is observed by the panel rather than by the
 	// image's healthcheck, and has nothing to wait for. A template that relies on any of the three would deploy
 	// into a container that is not the one the template describes, so it is refused here rather than half-run.
@@ -188,24 +212,45 @@ func (t *Template) readBody(root *yaml.Node, body []byte) error {
 	for _, m := range c.Mounts {
 		switch m.Type {
 		case "volume":
-			t.Volumes = append(t.Volumes, Volume{Name: m.Source, MountPath: m.Target})
+			// Two rules the panel's own volume editor enforces (internal/api/handlers_env.go), applied here so a
+			// template that could never take a volume row is not listed as one that can.
+			if !volumeNameRe.MatchString(m.Source) {
+				return fmt.Errorf("the template's volume %q is not a name the panel accepts: lowercase letters, digits, %q and %q", m.Source, "-", "_")
+			}
+			if p := protectedTarget(m.Target); p != "" {
+				return fmt.Errorf("the template mounts a volume at %q, which is a protected path no resource may mount", p)
+			}
+			t.Volumes = append(t.Volumes, Volume{Name: m.Source, MountPath: filepath.ToSlash(m.Target)})
 		case "tmpfs":
 		default:
 			return fmt.Errorf("the template binds a host path (%s); the panel gives a template its data as a named volume, which it can move and delete with the resource", m.Source)
 		}
 	}
 	for _, kv := range c.Env {
-		k, v, _ := strings.Cut(kv, "=")
+		k, _, _ := strings.Cut(kv, "=")
 		if !varNameRe.MatchString(k) {
 			return fmt.Errorf("%q is not a name the environment editor accepts", k)
 		}
 		// The placeholder rule refuses a credential the template leaves for a human. This one refuses a credential
 		// the template answers itself, which is the same shipped secret either way.
-		if secretNameRe.MatchString(k) && literalText(v) != "" {
-			return fmt.Errorf("%s has a value written into the template (%s): a catalog entry that ships a credential is not deployable, so write ${CODEPLO_PASSWORD} and let the panel generate it", k, v)
+		if secretNameRe.MatchString(k) && literalText(envValueOf(kv)) != "" {
+			return fmt.Errorf("%s has a value written into the template (%s): a catalog entry that ships a credential is not deployable, so write ${CODEPLO_PASSWORD} and let the panel generate it", k, envValueOf(kv))
 		}
 	}
+	t.Env = c.Env
+	// A placeholder outside the environment is text the panel has no way to fill: it resolves values into
+	// environment rows and reads the rest of the file once. Refusing it here is what keeps a template from
+	// deploying with `${CODEPLO_URL}` written into a label or a mount path.
+	if where, text := strayPlaceholder(root, t.envNode, ""); where != "" {
+		return fmt.Errorf("the template puts %s at %s, and the panel only fills the placeholders in the service's environment", text, where)
+	}
 	return nil
+}
+
+// envValueOf is the value half of a compose `KEY=value` entry.
+func envValueOf(entry string) string {
+	_, v, _ := strings.Cut(entry, "=")
+	return v
 }
 
 // literalText is what a value says that is not a placeholder: escapes unwrapped and every ${...} removed. It is how

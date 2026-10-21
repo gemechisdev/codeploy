@@ -17,7 +17,11 @@
 // compose file, with the same wording when it fails.
 package templates
 
-import "strings"
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Kind is what deploying a template creates. It is the contract's Template.kind and resources.type at once.
 type Kind string
@@ -40,7 +44,9 @@ const (
 	FillPassword Fill = "password"
 	// FillName is the resource name the operator chose in the deploy request.
 	FillName Fill = "name"
-	// FillURL is the https address the panel will route to the resource, when it has one to route to.
+	// FillURL would be the https address the panel routes to the resource. Nothing a deploy produces carries one
+	// yet — the deploy request has no domain and a resource is only routed after the operator adds one — so a
+	// template that asks for it is refused at parse time rather than listed and then failing.
 	FillURL Fill = "url"
 )
 
@@ -88,6 +94,9 @@ type Template struct {
 	// Service and Image are the one container this template becomes. Multi-service files are issues, not entries.
 	Service string
 	Image   string
+	// Env is the service's own environment as the template writes it: `KEY=value` with every placeholder still in
+	// the value, because resolving them is a deploy's job and not a catalog's.
+	Env []string
 
 	Variables []Variable
 	Volumes   []Volume
@@ -100,17 +109,10 @@ type Template struct {
 	Source string
 	// Compose is the template body without its metadata header.
 	Compose []byte
-}
 
-// NeedsURL reports whether the template can only be deployed to an address, which is what makes a deploy without a
-// domain refuse instead of producing a container configured with an empty URL.
-func (t *Template) NeedsURL() bool {
-	for _, v := range t.Variables {
-		if v.Fill == FillURL {
-			return true
-		}
-	}
-	return false
+	// envNode is the service's `environment:` node — the only subtree whose placeholders the panel fills, and the
+	// one place a ${...} is allowed to appear. It is parse-time bookkeeping, not part of the catalog entry.
+	envNode *yaml.Node
 }
 
 // titleCase is the name a template gets when its header does not say one: "uptime-kuma" becomes "Uptime Kuma".

@@ -663,8 +663,8 @@ deploy request carries a project, an environment and a name — no fields for te
 answers for `${POSTGRES_PASSWORD}` are "the panel generates it" or "this template cannot be deployed here". The
 parser therefore refuses an empty credential placeholder, a credential with a literal value in the file, and a
 generated name that also carries a default; it strips placeholders before looking, so `hunter2${CODEPLO_PASSWORD}`
-still reads as a shipped secret. Coolify's `SERVICE_PASSWORD*`/`SERVICE_FQDN*` names are recognised as the same
-magic, which is what makes an imported template's secrets arrive already generated.
+still reads as a shipped secret. Coolify's `SERVICE_PASSWORD*` names are recognised as the same magic, which is what
+makes an imported template's secrets arrive already generated.
 
 **The catalog is re-read on every list, and a drop-in file replaces the bundled template with the same key.**
 Importing a template is writing a file into `<DataDir>/templates`; a panel that needs a restart to notice has
@@ -676,3 +676,33 @@ to cache. Replacement rather than collision is how an operator pins an image tag
 listed to explain itself. The CLI prints the reason for every refused file and exits non-zero when anything was
 refused, which makes an import reviewable from CI. The bundled data sits in a root `templates` package for a
 similarly mundane reason: `go:embed` cannot reach up out of its own directory, and the plan puts the data there.
+
+**A template that asks for its own address is refused, not listed.** `${CODEPLO_URL}` and Coolify's `${SERVICE_FQDN}`
+mean "the https address the panel routes this resource to", and a template deploy has none to give: the contract's
+deploy request carries a project, an environment and a name, and a resource only gets an address after a domain row
+exists and a deployment has given it an upstream. Listing such a template would show a Deploy button that can only
+fail, so `classify` refuses it with the sentence an operator can act on ("write `${SERVICE_FQDN:-https://…}` with the
+address you route it to"). Pull-request previews (G8) need the same missing thing — a base domain — and when that
+setting exists these two placeholder families become fillable again from the same code path: `Plan` already accepts
+the value, and the refusal is one branch.
+
+**A compose-*kind* template becomes an app resource.** `resources.type=compose` is the column the multi-service
+Compose runner owns, gated by `deploy.compose`; a compose-kind catalog file that survived the parser is one
+container, and calling it `compose` would promise a runner that nothing is running. The route still refuses it when
+the flag is off, because the operator switched Compose support off and this entry came from a Compose file.
+
+**Everything a template deploy creates is created in one transaction.** `POST /resources` and the template route now
+share `insertResource`: resource row, source, first domain, the template's named volumes, its generated credentials
+sealed into `resource_env_vars`, the audit row and the queued first deployment. A database that comes up without its
+password, or with a volume row missing while its directory exists, is a workload the operator cannot repair from the
+panel — and the two routes cannot diverge while each has its own copy of the insert. The `template.deployed` audit
+row is deliberately the one thing outside it: it is evidence about where a workload came from, and losing it must not
+unmake a deployed database.
+
+**A database is observed by connecting to its port, and it is deployed with nothing else running.** Postgres, MySQL
+and Redis answer protocols the panel does not speak, so `run.probe` uses `Config.ProbeTCP` for `type=database` and
+the health path for everything else; it also returns the phrase the deployment record shows, so a database reads
+"accepting connections" rather than the "200 OK" it never sent. `prepare` used to gate every non-app resource at
+preflight ("only app resources are supported in this build"), which would have failed every catalog database minutes
+after one-click deploy said it was working, so `database` joins `app` there. Its rollout is `stop_first`, because two
+servers writing one data directory is corruption, not a blue/green deploy.

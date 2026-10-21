@@ -62,11 +62,15 @@ var magicPrefixes = []struct {
 	{"SERVICE_URL", FillURL},
 }
 
-// readPlaceholders collects every ${...} in the body and decides what the panel does with each. A placeholder the
-// panel cannot answer is a refusal, not an empty string in a container's environment.
-func (t *Template) readPlaceholders(root *yaml.Node) error {
+// readPlaceholders classifies every ${...} the template puts in the service's environment. A placeholder the panel
+// cannot answer is a refusal, not an empty string in a container's environment.
+//
+// The environment is the only place it looks, because it is the only place the panel writes values back to:
+// everything else the template contains is read once, at parse time, and then never touched again. A placeholder
+// anywhere else would ship to the container as the literal text, so readBody refuses one it finds there.
+func (t *Template) readPlaceholders(env *yaml.Node) error {
 	var found []string
-	scanPlaceholders(root, &found)
+	scanPlaceholders(env, &found)
 	seen := map[string]bool{}
 	for _, inner := range found {
 		v, err := classify(inner)
@@ -111,16 +115,56 @@ func placeholdersIn(s string) []string {
 	return out
 }
 
+// strayPlaceholder finds the first ${...} outside the subtree the panel fills, and returns where it is as a dotted
+// document path plus the text it was written in. The panel resolves placeholders only inside the service's
+// environment, so anywhere else the value would reach the container still spelled `${CODEPLO_PASSWORD}` — a
+// broken link or a literal string rather than a secret, and one the operator never sees on the environment screen.
+func strayPlaceholder(n, env *yaml.Node, path string) (where, text string) {
+	if n == nil || n == env {
+		return "", ""
+	}
+	if found := placeholdersIn(n.Value); len(found) > 0 {
+		if path == "" {
+			path = "the document"
+		}
+		return path, "${" + found[0] + "}"
+	}
+	for i, c := range n.Content {
+		p := path
+		switch {
+		case n.Kind == yaml.MappingNode && i%2 == 1:
+			if p == "" {
+				p = n.Content[i-1].Value
+			} else {
+				p = p + "." + n.Content[i-1].Value
+			}
+		case n.Kind == yaml.SequenceNode:
+			p = fmt.Sprintf("%s[%d]", path, i)
+		}
+		if w, s := strayPlaceholder(c, env, p); w != "" {
+			return w, s
+		}
+	}
+	return "", ""
+}
+
+// splitPlaceholder takes the inside of a ${...} apart: the variable it names, and the text the template attaches to
+// it, which is a default for `${X:-value}` and a message for `${X:?why}`. isDefault tells the two apart, because
+// only one of them is a value the panel may deploy.
+func splitPlaceholder(inner string) (name, text string, isDefault bool) {
+	if i := strings.Index(inner, ":?"); i >= 0 {
+		return inner[:i], inner[i+2:], false
+	}
+	if i := strings.Index(inner, ":-"); i >= 0 {
+		return inner[:i], inner[i+2:], true
+	}
+	return inner, "", false
+}
+
 // classify turns the inside of a placeholder into what the panel will do with it. The forms are the Compose ones:
 // ${NAME}, ${NAME:-value} and ${NAME:?what it is for}.
 func classify(inner string) (Variable, error) {
-	name, desc, def := inner, "", ""
-	hasDefault := false
-	if i := strings.Index(inner, ":?"); i >= 0 {
-		name, desc = inner[:i], inner[i+2:]
-	} else if i := strings.Index(inner, ":-"); i >= 0 {
-		name, def, hasDefault = inner[:i], inner[i+2:], true
-	}
+	name, text, hasDefault := splitPlaceholder(inner)
 	name = strings.TrimSpace(name)
 	if name == "!unclosed placeholder" {
 		return Variable{}, fmt.Errorf("the template has a ${ that is never closed")
@@ -129,10 +173,20 @@ func classify(inner string) (Variable, error) {
 		return Variable{}, fmt.Errorf("${%s} is not a variable name", inner)
 	}
 
-	v := Variable{Name: name, Description: strings.TrimSpace(desc)}
+	v := Variable{Name: name}
+	if !hasDefault {
+		v.Description = strings.TrimSpace(text)
+	}
 	if fill, length := magic(name); fill != FillNone {
 		if hasDefault {
-			return Variable{}, fmt.Errorf("%s is filled by the panel, so the template may not also give it a value (%s)", name, def)
+			return Variable{}, fmt.Errorf("%s is filled by the panel, so the template may not also give it a value (%s)", name, text)
+		}
+		if fill == FillURL {
+			// Every Coolify-style template asks for its own public address, and this panel cannot answer one yet:
+			// the deploy request carries no domain, and a resource is only routed once the operator adds a domain
+			// to it. Refusing at parse time keeps such a file out of the catalog instead of showing a Deploy
+			// button that fails. A build that has a base domain to mint hostnames from can answer this name.
+			return Variable{}, fmt.Errorf("%s asks for the address the resource will answer on, and this panel gives a template deploy none: write ${%s:-https://the-address-you-route-it-to} in the template instead", name, name)
 		}
 		v.Fill, v.Secret, v.FillLen = fill, fill == FillPassword, length
 		return v, nil
@@ -144,11 +198,11 @@ func classify(inner string) (Variable, error) {
 		return Variable{}, fmt.Errorf("%s has no value: the template gives it no default and the panel does not fill that name", name)
 	}
 	if secretNameRe.MatchString(name) {
-		return Variable{}, fmt.Errorf("%s is a credential with a value written into the template (%s): a catalog entry that ships a password is not deployable, so write ${CODEPLO_PASSWORD} instead", name, def)
+		return Variable{}, fmt.Errorf("%s is a credential with a value written into the template (%s): a catalog entry that ships a password is not deployable, so write ${CODEPLO_PASSWORD} instead", name, text)
 	}
-	v.Default, v.HasDefault = def, true
+	v.Default, v.HasDefault = text, true
 	if v.Description == "" {
-		v.Description = "Default: " + def
+		v.Description = "Default: " + text
 	}
 	return v, nil
 }

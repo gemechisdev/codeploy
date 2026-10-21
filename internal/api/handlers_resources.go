@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/codeplo/codeplo/internal/audit"
+	"github.com/codeplo/codeplo/internal/crypto"
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 )
 
@@ -202,28 +203,97 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request) {
 		domain = h
 	}
 
+	out, ok := s.insertResource(w, r, e, &resourceDraft{
+		EnvironmentID: b.EnvironmentID,
+		Type:          b.Type,
+		Name:          b.Name,
+		ConfigJSON:    cfgJSON,
+		Cfg:           cfg,
+		Source:        *src,
+		Domain:        domain,
+		DeployNow:     b.DeployNow,
+	})
+	if !ok {
+		return
+	}
+	writeJSON(w, 201, map[string]any{"resource": out.Resource, "deployment": out.Deployment})
+}
+
+// envSeed is one variable a resource is created with. Only a template writes them at creation — the environment
+// editor is a separate route — so the value is sealed here and never returned by anything.
+type envSeed struct {
+	Key    string
+	Value  string
+	Secret bool
+}
+
+// volumeSeed is one bind volume a resource is created with.
+type volumeSeed struct {
+	Name      string
+	MountPath string
+}
+
+// resourceDraft is a resource and everything that has to exist before its first deploy can be trusted: its config,
+// its source, its first domain, the variables a template generated for it, and the volumes it will keep data in.
+//
+// Everything here is created in one transaction. A database that came up without its password, or a resource whose
+// volume row is missing while its directory exists, is a broken workload the operator cannot repair from the panel —
+// so a template deploy is atomic, or it does not happen.
+type resourceDraft struct {
+	EnvironmentID string
+	Type          string
+	Name          string
+	ConfigJSON    string
+	Cfg           deploy.ResourceConfig
+	Source        sourceInput
+	Domain        string
+	DeployNow     bool
+	Env           []envSeed
+	Volumes       []volumeSeed
+}
+
+// createdResource is the response body both creation routes return: the contract's CreateResourceResponse.
+type createdResource struct {
+	ID         string
+	Resource   map[string]any
+	Deployment map[string]any
+}
+
+// insertResource writes one draft. It answers the request itself — a taken name is a 409, anything else the database
+// can refuse is a 500 — and reports false once it has, so callers only continue on success.
+func (s *Server) insertResource(w http.ResponseWriter, r *http.Request, e *deploy.Engine, d *resourceDraft) (*createdResource, bool) {
 	id, depID, created := newID("res_"), "", now()
+	p := from(r)
 	var conflict, domainTaken bool
-	var deployment *map[string]any
-	err = s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
+	var deployment map[string]any
+	// Volume directories are prepared before the transaction, like the volume route does: a directory that cannot be
+	// made should fail the request that asked for it, not a deployment minutes later. An empty directory left behind
+	// by a rolled-back insert is removed with the resource.
+	for _, v := range d.Volumes {
+		if err := e.EnsureVolumeDir(d.Name, v.Name); err != nil {
+			internalErr(w, err)
+			return nil, false
+		}
+	}
+	err := s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
 		if _, err := tx.ExecContext(r.Context(), `INSERT INTO resources(id,environment_id,type,name,slug,config_json,desired_state,created_at) VALUES (?,?,?,?,?,?,?,?)`,
-			id, b.EnvironmentID, b.Type, b.Name, b.Name, cfgJSON, "stopped", created); err != nil {
+			id, d.EnvironmentID, d.Type, d.Name, d.Name, d.ConfigJSON, "stopped", created); err != nil {
 			if isUniqueErr(err) {
 				conflict = true
 				return audit.Event{}, sql.ErrNoRows
 			}
 			return audit.Event{}, err
 		}
-		kind, filters, url, branch, buildPath, dockerfile, keyID := src.row()
+		kind, filters, url, branch, buildPath, dockerfile, keyID := d.Source.row()
 		if _, err := tx.ExecContext(r.Context(), `INSERT INTO resource_sources(resource_id,kind,repo_url,branch,build_path,dockerfile,path_filters_json,deploy_key_id) VALUES (?,?,?,?,?,?,?,?)`,
 			id, kind, url, branch, buildPath, dockerfile, filters, keyID); err != nil {
 			return audit.Event{}, err
 		}
-		if domain != "" {
+		if d.Domain != "" {
 			// The resource's first domain is its primary one; the reconciler will not route to it until a
 			// deployment succeeds and gives it an upstream.
 			if _, err := tx.ExecContext(r.Context(), `INSERT INTO domains(id,hostname,resource_id,kind,force_https,redirect_www,upstream,cert_status,issuer,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-				newID("dom_"), domain, id, "resource", 1, 0, "", "issuing", "", created); err != nil {
+				newID("dom_"), d.Domain, id, "resource", 1, 0, "", "issuing", "", created); err != nil {
 				if isUniqueErr(err) {
 					domainTaken = true
 					return audit.Event{}, sql.ErrNoRows
@@ -231,66 +301,84 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request) {
 				return audit.Event{}, err
 			}
 		}
+		for _, v := range d.Volumes {
+			if _, err := tx.ExecContext(r.Context(), `INSERT INTO volumes(id,resource_id,name,mount_path,kind,created_at) VALUES (?,?,?,?,?,?)`,
+				newID("vol_"), id, v.Name, v.MountPath, "bind", created); err != nil {
+				return audit.Event{}, err
+			}
+		}
+		for _, ev := range d.Env {
+			blob, err := crypto.Seal(s.Key, []byte(ev.Value))
+			if err != nil {
+				return audit.Event{}, err
+			}
+			secret := 0
+			if ev.Secret {
+				secret = 1
+			}
+			// A template's variables are runtime ones: they configure the container the image starts with, and a
+			// template never builds.
+			if _, err := tx.ExecContext(r.Context(), `INSERT INTO resource_env_vars(id,resource_id,key,value_enc,scope,is_secret,updated_at) VALUES (?,?,?,?,?,?,?)`,
+				newID("env_"), id, ev.Key, blob, "runtime", secret, created); err != nil {
+				return audit.Event{}, err
+			}
+		}
 		ev, err := s.rec(r.Context(), tx, r, p, "resource.created", "resource", id,
-			map[string]any{"name": b.Name, "type": b.Type, "mode": cfg.Image.Mode, "environment_id": b.EnvironmentID})
+			map[string]any{"name": d.Name, "type": d.Type, "mode": d.Cfg.Image.Mode, "environment_id": d.EnvironmentID})
 		if err != nil {
 			return audit.Event{}, err
 		}
-		if !b.DeployNow {
+		if !d.DeployNow {
 			return ev, nil
 		}
 		ref := ""
-		if cfg.Image.Mode == "pull" && cfg.Image.Ref != nil {
-			ref = *cfg.Image.Ref
+		if d.Cfg.Image.Mode == "pull" && d.Cfg.Image.Ref != nil {
+			ref = *d.Cfg.Image.Ref
 		}
 		branchName := ""
-		if src.Branch != nil {
-			branchName = *src.Branch
+		if d.Source.Branch != nil {
+			branchName = *d.Source.Branch
 		}
 		depID, err = e.Create(r.Context(), tx, s.Jobs, deploy.NewDeployment{
-			ResourceID: id, Trigger: deploy.TrManual, Mode: cfg.Image.Mode, Branch: branchName, ImageRef: ref,
+			ResourceID: id, Trigger: deploy.TrManual, Mode: d.Cfg.Image.Mode, Branch: branchName, ImageRef: ref,
 		})
 		if err != nil {
 			return audit.Event{}, err
 		}
 		// Read the row back inside the transaction: the queue worker cannot change it before this commit, so what
 		// the client is shown is the state the deployment was created in, not the state it reached meanwhile.
-		d, err := deploymentJSON(r.Context(), tx, depID)
+		d2, err := deploymentJSON(r.Context(), tx, depID)
 		if err != nil {
 			return audit.Event{}, err
 		}
-		deployment = &d
+		deployment = d2
 		ev, err = s.rec(r.Context(), tx, r, p, "deployment.created", "deployment", depID,
-			map[string]any{"resource": b.Name, "mode": cfg.Image.Mode, "trigger": "manual"})
+			map[string]any{"resource": d.Name, "mode": d.Cfg.Image.Mode, "trigger": "manual"})
 		return ev, err
 	})
 	if conflict {
-		writeErr(w, 409, "conflict", `A resource named "`+b.Name+`" already exists`, map[string]any{"name": b.Name})
-		return
+		writeErr(w, 409, "conflict", `A resource named "`+d.Name+`" already exists`, map[string]any{"name": d.Name})
+		return nil, false
 	}
 	if domainTaken {
-		writeErr(w, 409, "conflict", domain+" is already routed to another resource", map[string]any{"hostname": domain})
-		return
+		writeErr(w, 409, "conflict", d.Domain+" is already routed to another resource", map[string]any{"hostname": d.Domain})
+		return nil, false
 	}
 	if err != nil {
 		internalErr(w, err)
-		return
+		return nil, false
 	}
 	s.Bus.Publish("resource.updated", map[string]any{"resource_id": id})
-	if domain != "" {
+	if d.Domain != "" {
 		s.Bus.Publish("edge.changed", map[string]any{"domain_id": nil})
 		s.reconcileAfter()
 	}
 	u, err := s.resourceByID(r.Context(), id)
 	if err != nil {
 		internalErr(w, err)
-		return
+		return nil, false
 	}
-	resp := map[string]any{"resource": u.response(), "deployment": nil}
-	if deployment != nil {
-		resp["deployment"] = *deployment
-	}
-	writeJSON(w, 201, resp)
+	return &createdResource{ID: id, Resource: u.response(), Deployment: deployment}, true
 }
 
 func (s *Server) environmentExists(ctx context.Context, id string) bool {

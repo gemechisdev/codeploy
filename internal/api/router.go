@@ -27,6 +27,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/monitor"
 	"github.com/codeplo/codeplo/internal/modules/notify"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
+	"github.com/codeplo/codeplo/internal/modules/templates"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/webui"
 )
@@ -66,6 +67,9 @@ type Server struct {
 	Monitor   *monitor.Service
 	Notify    *notify.Service
 	Databases *databases.Service
+	// Templates is the P7 catalog. Listing it reads files only; deploying one seals the credentials it generates,
+	// so the service carries the database and the master key. Nil means a build without the module.
+	Templates *templates.Service
 	Started   time.Time
 	Version   string
 	Commit    string
@@ -88,6 +92,7 @@ func (s *Server) Routes() []RouteDef {
 	defs = append(defs, s.envRoutes()...)
 	defs = append(defs, s.gitRoutes()...)
 	defs = append(defs, s.opsRoutes()...)
+	defs = append(defs, s.templateRoutes()...)
 	implemented := map[string]bool{}
 	for _, d := range defs {
 		implemented[d.Method+" "+d.Path] = true
