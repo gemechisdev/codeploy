@@ -616,15 +616,36 @@ type settingRule struct {
 	min, max float64
 }
 
+// settingRules is the whole settable surface: every key a migration seeds, with the range its reader already
+// clamps to. Both halves matter. A key missing here is one the panel's own error text tells the operator to raise
+// ("raise git.clone_timeout_s") while this route refuses to write it, which is a dead end rather than a limit.
+// A range wider than the reader's is worse: the API says yes, the engine silently ignores the value, and the
+// operator believes they changed something.
 var settingRules = map[string]settingRule{
-	"terminal.allow_root":         {"boolean", 0, 0},
-	"terminal.idle_timeout_s":     {"int", 60, 3600},
-	"retain_images":               {"int", 1, 20},
-	"observation_window_s":        {"int", 10, 600},
-	"step_up_window_s":            {"int", 60, 900},
-	"hardening_revert_window_s":   {"int", 30, 900},
-	"disk_preflight_threshold_gb": {"number", 1, 100},
-	"session_ttl_h":               {"int", 1, 72},
+	"terminal.allow_root":            {"boolean", 0, 0},
+	"terminal.record_sessions":       {"boolean", 0, 0},
+	"terminal.idle_timeout_s":        {"int", 60, 3600},
+	"terminal.max_sessions_per_user": {"int", 1, 50},
+	"retain_images":                  {"int", 1, 20},
+	"observation_window_s":           {"int", 10, 600},
+	"step_up_window_s":               {"int", 60, 900},
+	"hardening_revert_window_s":      {"int", 30, 900},
+	"disk_preflight_threshold_gb":    {"number", 1, 100},
+	"session_ttl_h":                  {"int", 1, 72},
+	"deploy.build_timeout_s":         {"int", 60, 14400},
+	"deploy.release_timeout_s":       {"int", 60, 3600},
+	"deploy.max_log_lines":           {"int", 1000, 1000000},
+	"deploy.stop_old_first":          {"boolean", 0, 0},
+	"git.clone_timeout_s":            {"int", 1, 3600},
+	"git.max_clone_mb":               {"int", 16, 262144},
+	"metrics.sample_interval_s":      {"int", 10, 3600},
+	"metrics.max_samples":            {"int", 120, 1000000},
+	"alerts.eval_interval_s":         {"int", 10, 3600},
+	"notify.timeout_s":               {"int", 1, 120},
+	"logs.retention_days":            {"int", 1, 365},
+	"logs.max_rows":                  {"int", 1000, 10000000},
+	"cron.history_per_job":           {"int", 1, 1000},
+	"backup.timeout_s":               {"int", 30, 7200},
 }
 
 func (s *Server) settingsMap(r *http.Request) (map[string]any, error) {

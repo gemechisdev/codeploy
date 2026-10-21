@@ -98,12 +98,36 @@ function GitTab() {
   );
 }
 
+// The two kinds the settings surface actually has. A boolean is a switch and a number is a field, because a
+// "true"/"false" text box is how an operator types "1" and gets a silent no.
+const SETTING_BOOLEANS: { key: string; label: string; hint: string }[] = [
+  { key: 'terminal.allow_root', label: 'Allow root terminal', hint: 'Off by default. Root sessions always need step-up.' },
+  { key: 'terminal.record_sessions', label: 'Record terminal sessions', hint: 'Keeps a transcript of every host shell.' },
+  { key: 'deploy.stop_old_first', label: 'Stop the old container first', hint: 'Very small hosts: the previous version is stopped before the new one starts, so there is no safe-rollback window.' },
+];
+
 const SETTING_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'step_up_window_s', label: 'Step-up window (s)', hint: 'How long a verified code keeps sensitive actions unlocked.' },
   { key: 'observation_window_s', label: 'Observation window (s)', hint: 'Time a new deployment is watched before it is final.' },
   { key: 'hardening_revert_window_s', label: 'Hardening revert window (s)', hint: 'Time to confirm connectivity before the server reverts.' },
   { key: 'retain_images', label: 'Images retained', hint: 'Previous images kept per resource for rollback.' },
   { key: 'disk_preflight_threshold_gb', label: 'Disk pre-flight threshold (GB)', hint: 'Minimum free disk to start a build.' },
+  { key: 'session_ttl_h', label: 'Session lifetime (h)', hint: 'How long a browser session stays signed in.' },
+  { key: 'terminal.idle_timeout_s', label: 'Terminal idle timeout (s)', hint: 'A shell with no input for this long is closed.' },
+  { key: 'terminal.max_sessions_per_user', label: 'Terminal sessions per user', hint: 'Open shells one operator may have at a time.' },
+  { key: 'deploy.build_timeout_s', label: 'Build timeout (s)', hint: 'Longer than this and the build is stopped and the deployment fails.' },
+  { key: 'deploy.release_timeout_s', label: 'Release command timeout (s)', hint: 'The one-off migration container gets this long.' },
+  { key: 'deploy.max_log_lines', label: 'Log lines per deployment', hint: 'Older lines of one build are dropped past this count.' },
+  { key: 'git.clone_timeout_s', label: 'Clone timeout (s)', hint: 'A repository that cannot be fetched this fast fails the deployment.' },
+  { key: 'git.max_clone_mb', label: 'Largest clone (MiB)', hint: 'A working tree bigger than this is not checked out.' },
+  { key: 'metrics.sample_interval_s', label: 'Metric sample interval (s)', hint: 'How often the host is measured.' },
+  { key: 'metrics.max_samples', label: 'Metric samples kept', hint: 'The chart history the host keeps in memory and on disk.' },
+  { key: 'alerts.eval_interval_s', label: 'Alert evaluation interval (s)', hint: 'How often alert rules are checked.' },
+  { key: 'notify.timeout_s', label: 'Notification timeout (s)', hint: 'How long a channel may take to answer before the send fails.' },
+  { key: 'logs.retention_days', label: 'Deployment log retention (days)', hint: 'Logs older than this are removed, whole deployments at a time.' },
+  { key: 'logs.max_rows', label: 'Deployment log rows kept', hint: 'The budget that stops one verbose build filling the disk.' },
+  { key: 'cron.history_per_job', label: 'Cron runs kept per job', hint: 'Older runs of a scheduled command are dropped past this count.' },
+  { key: 'backup.timeout_s', label: 'Backup timeout (s)', hint: 'A dump that outlives this is failed rather than left running.' },
 ];
 
 function ModulesTab() {
@@ -124,8 +148,9 @@ function ModulesTab() {
       <Card><CardHeader title="Server settings" description="Owner and admin only." />
         <QueryBoundary query={settings}>{(d) => (
           <CardBody className="space-y-3">
-            <div className="flex items-center gap-3 text-xs"><div className="min-w-0 flex-1"><p className="font-semibold text-primary">Allow root terminal</p><p className="text-muted">Off by default. Root sessions always need step-up.</p></div>
-              <Switch aria-label="Allow root terminal" checked={d.values['terminal.allow_root'] === true} disabled={!can('flags:manage')} onCheckedChange={(v) => ps.mutate({ 'terminal.allow_root': v }, { onError: err })} /></div>
+            {SETTING_BOOLEANS.map((s) => (
+              <div key={s.key} className="flex items-center gap-3 text-xs"><div className="min-w-0 flex-1"><p className="font-semibold text-primary">{s.label}</p><p className="text-muted">{s.hint}</p></div>
+                <Switch aria-label={s.label} checked={d.values[s.key] === true} disabled={!can('flags:manage')} onCheckedChange={(v) => ps.mutate({ [s.key]: v }, { onError: err })} /></div>))}
             <div className="grid gap-3 sm:grid-cols-2">{SETTING_FIELDS.map((s) => (
               <Field key={s.key} label={s.label} hint={s.hint}>{(a) => <Input {...a} type="number" min={0} disabled={!can('flags:manage')} value={draft[s.key] ?? String(d.values[s.key] ?? '')}
                 onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })}

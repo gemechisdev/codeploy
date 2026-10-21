@@ -155,6 +155,13 @@ export async function createDb(opts: CreateDbOptions = {}): Promise<Db> {
     settings: {
       'terminal.allow_root': false, 'terminal.idle_timeout_s': 900, retain_images: 5, observation_window_s: 60, step_up_window_s: 300,
       hardening_revert_window_s: 300, disk_preflight_threshold_gb: 2, session_ttl_h: 12,
+      // Every key a migration seeds, at its seeded value: GET /settings returns the settings table, so a mock that
+      // lists fewer keys than the daemon has would let the UI be built against a response no real panel sends.
+      'terminal.max_sessions_per_user': 3, 'terminal.record_sessions': false,
+      'deploy.build_timeout_s': 1800, 'deploy.release_timeout_s': 600, 'deploy.max_log_lines': 20000, 'deploy.stop_old_first': false,
+      'git.clone_timeout_s': 300, 'git.max_clone_mb': 2048,
+      'metrics.sample_interval_s': 60, 'metrics.max_samples': 20160, 'alerts.eval_interval_s': 60, 'notify.timeout_s': 10,
+      'logs.retention_days': 14, 'logs.max_rows': 200000, 'cron.history_per_job': 50, 'backup.timeout_s': 900,
     },
     flags: [
       { key: 'hardening.apply_tier2', description: 'Allow applying the reversible default-deny firewall (Tier 2). Release-gated: enable only after the VM fault-injection matrix passes.', enabled: false, release_gated: true },

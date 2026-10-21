@@ -21,13 +21,29 @@ function fnv(s: string): string {
 
 const SETTING_RULES: Record<string, { type: 'boolean' | 'int' | 'number'; min?: number; max?: number; label: string }> = {
   'terminal.allow_root': { type: 'boolean', label: 'Allow root terminal' },
+  'terminal.record_sessions': { type: 'boolean', label: 'Record terminal sessions' },
   'terminal.idle_timeout_s': { type: 'int', min: 60, max: 3600, label: 'Terminal idle timeout (s)' },
+  'terminal.max_sessions_per_user': { type: 'int', min: 1, max: 50, label: 'Terminal sessions per user' },
   retain_images: { type: 'int', min: 1, max: 20, label: 'Retained images per resource' },
   observation_window_s: { type: 'int', min: 10, max: 600, label: 'Observation window (s)' },
   step_up_window_s: { type: 'int', min: 60, max: 900, label: 'Step-up window (s)' },
   hardening_revert_window_s: { type: 'int', min: 30, max: 900, label: 'Dead-man revert window (s)' },
   disk_preflight_threshold_gb: { type: 'number', min: 1, max: 100, label: 'Disk pre-flight threshold (GiB)' },
   session_ttl_h: { type: 'int', min: 1, max: 72, label: 'Session lifetime (h)' },
+  'deploy.build_timeout_s': { type: 'int', min: 60, max: 14400, label: 'Build timeout (s)' },
+  'deploy.release_timeout_s': { type: 'int', min: 60, max: 3600, label: 'Release command timeout (s)' },
+  'deploy.max_log_lines': { type: 'int', min: 1000, max: 1000000, label: 'Log lines per deployment' },
+  'deploy.stop_old_first': { type: 'boolean', label: 'Stop the old container before starting the new' },
+  'git.clone_timeout_s': { type: 'int', min: 1, max: 3600, label: 'Clone timeout (s)' },
+  'git.max_clone_mb': { type: 'int', min: 16, max: 262144, label: 'Largest clone (MiB)' },
+  'metrics.sample_interval_s': { type: 'int', min: 10, max: 3600, label: 'Metric sample interval (s)' },
+  'metrics.max_samples': { type: 'int', min: 120, max: 1000000, label: 'Metric samples kept' },
+  'alerts.eval_interval_s': { type: 'int', min: 10, max: 3600, label: 'Alert evaluation interval (s)' },
+  'notify.timeout_s': { type: 'int', min: 1, max: 120, label: 'Notification send timeout (s)' },
+  'logs.retention_days': { type: 'int', min: 1, max: 365, label: 'Deployment log retention (days)' },
+  'logs.max_rows': { type: 'int', min: 1000, max: 10000000, label: 'Deployment log rows kept' },
+  'cron.history_per_job': { type: 'int', min: 1, max: 1000, label: 'Cron runs kept per job' },
+  'backup.timeout_s': { type: 'int', min: 30, max: 7200, label: 'Backup timeout (s)' },
 };
 
 const tier = (mb: number): S['SystemStatus']['support_tier'] => (mb < 1024 ? 'experimental' : mb < 2048 ? 'limited' : mb < 4096 ? 'primary' : mb < 8192 ? 'comfortable' : 'headroom');
