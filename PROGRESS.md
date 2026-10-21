@@ -255,21 +255,49 @@ pass is held to the end of the phases. `go vet ./...` being clean means the pack
 
 
 
+## Phase 5 — Git & CI/CD (2026-10-21): implemented, compiling, **not tested**
+
+Same instruction as Phase 4: development only. The gates that ran are `gofmt -l internal cmd` (empty),
+`go build ./...` and `go vet ./...` (both clean, and `vet` type-checks the test files). **No Phase 5 test has been
+executed and none is claimed to pass.** One toolchain note that cost real time and is now recorded: the module path is
+`github.com/codeplo/codeplo` (the repository is `codeploy`); a new package that imports
+`github.com/codeplo/codeploy/...` fails with `no required module provides package`, which looks exactly like a broken
+module cache and is not one.
+
+| Area | Files | What it does |
+|---|---|---|
+| Migration | `internal/store/migrations/0005_git.sql` | `git_connections`, `deploy_keys` (public half, one per resource), `deploy_hooks` (token hashed), `webhook_secrets` (sealed), `webhook_deliveries` with `UNIQUE(provider, delivery_id)` as the replay guard + two indexes; seeds `git.clone_timeout_s=300`, `git.max_clone_mb=2048`. Additive — 0001–0004 untouched. `resource_sources`/`resource_credentials` already existed from 0004 and are reused, not duplicated |
+| Git module | `internal/modules/git/{module,source,deploykey,hook,webhook,clone}.go` | every P5 rule as a function with no HTTP in it: connection list/create, source read/validate/store (mock-exact validation messages), ed25519 deploy keys (private half sealed into `resource_credentials`, never returned), hook tokens (prefix-only reads, create refuses when one exists, rotate keeps the id), webhook secrets, `VerifySignature` over the exact bytes with `hmac.Equal`, the push gate in contract order (event → branch → `[skip deploy]` → path filters), delivery claim/record/page, clone limits, and `VerifySource` — a pre-flight that refuses a source the engine could never build |
+| Tag policy | `hook.go` `MatchImage` | `ghcr.io/org/app:*` accepts `app:<tag>` and `app:<tag>@sha256:…`, and rejects `app-evil:latest` — the boundary is the `:` after the repository, not a string prefix |
+| Provider | `internal/modules/git/providers/github.go` | GitHub push payload → `git.Push` (ssh_url/clone_url, `refs/heads/` stripped, short SHA, flattened added/modified/removed), and `CanonicalRepo` so `git@host:o/r.git` and `https://host/o/r` compare equal (host case-insensitive, path case-sensitive) |
+| API | `internal/api/handlers_git.go` | all 14 git routes implemented (no stubs left in this module): `/git/connections`, `/resources/{id}/source` GET+PUT, `/deploy-key` POST+GET, `/deploy-hook` GET+POST+`/rotate`, `/webhook` GET+POST, `/webhooks/deliveries`, public `POST /webhooks/github` and `POST /hooks/deploy/{token}`. Writes and their audit row commit in one transaction; the receivers claim the delivery id in the same transaction as the deployment they trigger |
+| Receiver security | same file | signature verified before the payload is trusted to name a repository; unattributable posts (unknown repo, unknown token) are refused **without** writing a delivery row, because the endpoint is public and rate-limited to 30 rps; a replay loses the transaction and answers 409 |
+| Engine wiring | `internal/modules/deploy/{steps,engine}.go`, `builders/{builder,cli}.go` | `buildFromSource` now reads `git.ReadCloneLimits`, gives the clone its own deadline, and passes `GitSource.MaxBytes`; `CLI.Clone` sizes the checkout and fails with the new `ErrSourceTooLarge`, which the engine reports with the settings key that would raise it |
+| CI | `deploy/github-actions/codeplo-deploy.yml` | reusable `workflow_call` workflow: builds and pushes to a registry, then calls the resource's deploy hook. `permissions: contents:read, packages:write`, per-image concurrency group, 3 attempts with backoff, JSON built by `jq`, honours `[skip deploy]`, and never echoes the token |
+| Wiring | `cmd/codeplod/main.go`, `internal/api/router.go` | `srv.Git = git.New(db, key)` when the `git` module is enabled (database + master key only, so it wires with no Docker daemon present) |
+
+**Deliberate divergences from the mock** are in `docs/DECISIONS.md` under Phase 5: the two no-write rules above, the
+webhook deploying a host-built image rather than a payload-named one, and `VerifySource`. Everything the frontend
+asserts — status codes, `fields` keys, message wording, response shapes including explicit `null`s — matches.
+
 ## Next
 
-**P5 — Git & CI/CD** is next in the plan's order: `git_connections`/`webhook_deliveries`/`deploy_hooks` tables,
-the `git` module (clone via per-resource ed25519 deploy key with the private half encrypted and never returned,
-webhook receiver with HMAC-SHA256 + delivery-id replay protection + rate limits, deploy-hook tokens hashed at
-rest and rotatable, `[skip deploy]` and branch/path-filter gates), the endpoints `/git/connections`,
-`/resources/{id}/source`, `/resources/{id}/deploy-key`, `/resources/{id}/deploy-hook`, `/webhooks/github`,
-`/hooks/deploy/{token}`, and `deploy/github-actions/codeplo-deploy.yml`. `resource_sources` and
-`resource_credentials` already exist from 0004 and `builders.CLI` already clones through a credential helper —
-P5 fills the seam between them rather than inventing a second path.
+**P6 — Operations** is next in the plan's order: `monitor` (host/container sampler → `metrics_samples` ring buffer,
+alert evaluator), `notify` (Telegram/Discord/email/webhook drivers), `databases` (Postgres/MySQL/Redis definitions),
+backups (dump via Docker exec → local/S3-compatible, retention, restore), role-management backing, cron jobs for
+resources, and log retention. Its tables come from a new additive migration; the sampler reuses the P3 runtime port.
+
+P5's own leftovers, none of them blocking: the frontend's Source & CI/CD tab (backend parity for it is what the mock
+defines, and `web/src/features/git/*` does not exist yet), monorepo fan-out per delivery (schema-level, belongs with
+the P7 GitHub App work), and the delivery-row retention question — the history is append-only until P6's log
+retention decides how long any row lives.
 
 Still owed before any of this can be *claimed*, in the order the plan puts them:
-1. **Phase 4 tests** — fault-injection over every §3.8 row (crash mid-deploy, reboot before the switch, cancel
-   after creation, healthy-then-unhealthy → auto rollback, release-command failure, disk/RAM refusal, hung step),
-   contract conformance of the new handlers against `web/src/mock`, and the frontend's live-mode pass.
+1. **Phase 4 and Phase 5 tests** — fault-injection over every §3.8 row (crash mid-deploy, reboot before the switch,
+   cancel after creation, healthy-then-unhealthy → auto rollback, release-command failure, disk/RAM refusal, hung
+   step), plus the P5 security paths that only a test can prove: a wrong HMAC, a replayed delivery id, a
+   `[skip deploy]` push, a hook deploying a sibling repository, a clone over `git.max_clone_mb`, and a source whose
+   deploy key does not open. Contract conformance against `web/src/mock`, then the frontend's live-mode pass.
 2. **Phase 3's host-shell run** on a real systemd (spike E) and its live-mode frontend pass.
 3. **P2b/P2c VM matrix**, CI on a runner, signed release artefacts (P9).
 

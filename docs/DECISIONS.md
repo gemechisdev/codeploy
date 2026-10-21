@@ -412,3 +412,70 @@ publishing, audit-flagged). `make gen` was re-run; the route set is unchanged, s
 **Daemon start-up order is load-bearing.** Queue handlers are registered before `Jobs.Run` (the queue reads the
 handler map while running), and `Engine.Recover` runs before the first deployment is claimed, because "every handler
 can be re-run safely after a restart" is only true once the crashed run's leftovers have been accounted for.
+
+## Phase 5 — Git & CI/CD (2026-10-21)
+
+**The git rules live in `internal/modules/git`, not in the handlers.** Every domain decision — validation message
+wording, HMAC comparison, gate order, token formats, tag-policy matching — is a function in that package, and the
+handlers only translate between HTTP and it. Two copies of a security rule is how one of them stops being enforced,
+and the clone step in the deploy engine needed the same limits the panel writes.
+
+**A deploy key is replaced, not added, and only the public half is ever readable again.** `deploy_keys` has
+`UNIQUE(resource_id)`, matching the mock and the UI: two keys on one resource would leave no way to say which one
+the source uses, and the panel's "copy this into GitHub" step becomes ambiguous. The private half is written once
+into `resource_credentials` (kind `deploy_key`, XChaCha20-Poly1305 under the master key) and no endpoint returns it
+— the contract has no reveal path, and adding one would undo the sealing. `GetDeployKey` reads the row that carries
+`public_key` and `fingerprint` only.
+
+**The webhook secret is stored sealed, the hook token is stored hashed.** They protect different things. Verifying a
+GitHub signature requires *recomputing* the HMAC, so the receiver must be able to open the secret; a deploy-hook
+token only needs to be recognised, so it is stored as SHA-256 and looked up by hash — a database dump then yields
+nothing usable, and a token compare happens in the index instead of a constant-time loop over every resource's
+secret. Both expose only a 9-character prefix.
+
+**Replay protection is a unique index claimed inside the deployment's transaction.**
+`webhook_deliveries UNIQUE(provider, delivery_id)` plus `ClaimDelivery` means two concurrent retries of the same
+delivery race in the index and the loser rolls back and answers 409 — neither deploys. Check-then-act ("has this id
+been seen?") would let both through, and GitHub does retry. The claim and the `deployments` insert commit together,
+so a delivery can never be marked consumed by a deployment that did not happen.
+
+**Anonymous garbage does not get to write delivery rows.** The mock records a `rejected` delivery for every bad-signature
+post, including one that names no configured repository. This endpoint is public and rate-limited to 30 rps, so
+recording unattributable posts turns the delivery history into a disk-filling target and a flood that hides the real
+rejections. A post naming a repository this panel *does* serve still records `Invalid HMAC-SHA256 signature`, and an
+unknown deploy-hook token still answers 404 without a row.
+
+**The image policy boundary is the colon, not a string prefix.** `ghcr.io/org/app:*` must not accept
+`ghcr.io/org/app-evil:latest`, which a naive `strings.HasPrefix(image, policy[:-1])` does. `MatchImage` requires the
+repository to be exactly the policy's repository, then a tag with no `/` and no further `:` (an optional `@digest` is
+allowed). Same reasoning as `ConfinePath` in P4: a policy that is 95% right is not a policy.
+
+**A webhook deploy builds on the host; it never takes an image reference from the payload.** The gate that decides
+*whether* to deploy reads the payload; the *what* comes from this host's own configuration — the resource's source,
+branch and Dockerfile, producing `codeplo/<slug>:<deployment-id>`. The mock puts `cpl-<slug>:<sha>` in the request;
+honouring an image name supplied by the caller would let a validly-signed push for any branch pick which bytes run.
+Registry-pull deploys are what the *deploy hook* is for, where the CI built the image and the policy check is the
+only thing deciding whether it is allowed.
+
+**One delivery deploys one resource.** `webhook_deliveries.resource_id` is a single column, so the schema — not the
+code — says a delivery belongs to one service. When several resources share a repository the lowest id wins
+deterministically. Monorepo fan-out (one push, N services, one row each) is a schema change and belongs with the
+GitHub App work in P7.
+
+**Saving a source checks that the source can be built, not only that the request is well formed.** `VerifySource` is
+a production-only pre-flight: a `deploy_key_git` source whose sealed key is missing, unopenable by this master key,
+or not parseable by `ssh.ParsePrivateKey` is refused with `This source cannot be built: …` when it is saved, instead
+of failing a minute into a build with a git error nobody can read. The mock has no such check because it has no
+builder.
+
+**A source write patches `config.image` and nothing else.** `resource_sources` and the engine's `config_json` are two
+views of the same decision (build vs pull, which Dockerfile, which context), and they must not drift. `syncImageConfig`
+rewrites exactly that subtree, so setting a Git source cannot silently reset a port, a health check or an environment
+the operator configured.
+
+**Clone bounds are enforced by the builder and read from one place.** The engine calls `git.ReadCloneLimits` for
+`git.clone_timeout_s` and `git.max_clone_mb`, gives the clone its own `context.WithTimeout` (so a stalled connection
+fails *this* deployment after the timeout rather than holding the worker until the build budget is gone), and
+`CLI.Clone` measures the checked-out tree afterwards and refuses it with `ErrSourceTooLarge` if it is over budget.
+`--depth 1` bounds history, not size: a repository of large binaries clones fast and then fills the disk at the
+build, which is the failure the setting exists to prevent.
