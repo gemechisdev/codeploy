@@ -16,10 +16,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // The App's wire budget. A JWT lives ten minutes because that is the longest GitHub accepts; the token it buys
@@ -308,6 +310,95 @@ func (a *GitHubApp) TokenFor(ctx context.Context, repoURL string) (string, bool,
 	return tok, true, nil
 }
 
+// The four states GitHub accepts for a commit status. They are its vocabulary, not the panel's: a deployment the
+// panel calls `interrupted` is GitHub's `error`, because nothing about the commit failed — the system that was
+// supposed to check it did.
+const (
+	StatusPending = "pending"
+	StatusSuccess = "success"
+	StatusFailure = "failure"
+	StatusError   = "error"
+
+	// StatusContext is the check's name in GitHub's UI and the key a later status overwrites. One context per panel
+	// means a redeploy updates the same line rather than stacking five.
+	StatusContext = "codeplo/deploy"
+	// statusDescription is GitHub's own limit on the description line.
+	statusDescription = 145
+)
+
+// shaRe bounds what goes into a URL path segment. A deployment row's commit sha is git's own output, but this is
+// still an identifier crossing a request boundary, and `../` has no business in it.
+var shaRe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// repoNameRe is GitHub's `org/repo`: exactly two segments, each a legal repository name. A nested path is not a
+// repository this endpoint can address, and refusing it is better than posting a status to whatever `a/b/c` means.
+var repoNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// CommitStatus is one commit's report: which repository and sha, how the deployment stands, and the panel's address
+// for it. TargetURL is optional — a panel with no domain set has no address to hand out, and a status with no link
+// beats a link to a host that does not exist.
+type CommitStatus struct {
+	RepoURL, SHA, State, Description, TargetURL string
+}
+
+// PostStatus writes one commit status: `POST /repos/{org}/{repo}/statuses/{sha}` with the installation's token.
+//
+// The description is the caller's sentence and this function treats it as untrusted: it is flattened, cut at the
+// byte GitHub counts rather than the byte it lands on, and never filled from a deployment's error text by the
+// engine. Anything the panel has redacted in its own logs must not reach a page every reader of the repository can
+// open.
+func (a *GitHubApp) PostStatus(ctx context.Context, s CommitStatus) error {
+	repo := repoPath(s.RepoURL)
+	if !repoNameRe.MatchString(repo) {
+		return fmt.Errorf("%q is not an org/repository this panel can report against", s.RepoURL)
+	}
+	sha := strings.ToLower(strings.TrimSpace(s.SHA))
+	if !shaRe.MatchString(sha) {
+		return fmt.Errorf("%q is not a commit sha, so nothing can be reported for it", s.SHA)
+	}
+	state := s.State
+	switch state {
+	case StatusPending, StatusSuccess, StatusFailure, StatusError:
+	default:
+		return fmt.Errorf("%q is not a commit status GitHub accepts", s.State)
+	}
+	bearer, err := a.Token(ctx)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"state": state, "context": StatusContext, "description": clipStatus(s.Description)}
+	if s.TargetURL != "" {
+		body["target_url"] = s.TargetURL
+	}
+	return a.call(ctx, bearer, "POST", "/repos/"+repo+"/statuses/"+sha, body, nil)
+}
+
+// clipStatus makes a sentence fit GitHub's line: control characters and runs of whitespace collapse (a status is
+// one line in a table), and the cut is at a rune boundary so a clipped UTF-8 description stays readable.
+func clipStatus(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' || r < 0x20 {
+			return ' '
+		}
+		return r
+	}, s)
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "deployed by codeplo"
+	}
+	if len(s) <= statusDescription {
+		return s
+	}
+	cut := statusDescription
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(s[:cut-1]) + "…"
+}
+
 // repoCache returns the installation's repositories, fetching them when the cache has aged out. The lock is
 // released while GitHub is being read: Token() takes the same lock to mint the bearer, and holding it across an
 // HTTP call would be a deadlock that only appears the first time a deployment lists repositories.
@@ -444,6 +535,10 @@ func (a *GitHubApp) hint(status int, path string) string {
 		return fmt.Sprintf(" (a 401 here means the private key does not belong to app id %s)", a.AppID)
 	case status == 404 && strings.HasPrefix(path, "/applications/"):
 		return fmt.Sprintf(" (a 404 here means installation %s does not exist: has the App been uninstalled, or is that the app id rather than the installation id from /settings/installations/<id>?)", a.InstallationID)
+	case (status == 404 || status == 422) && strings.Contains(path, "/statuses/"):
+		return " (GitHub has no such commit to put a status on: the branch was force-pushed or deleted after the build, or the sha came from a repository the App cannot see)"
+	case status == 403 && strings.Contains(path, "/statuses/"):
+		return " (a 403 here is not a rate limit: the App lacks the commit statuses: write permission, so grant it on the App's settings page and accept the refreshed installation request)"
 	case status == 403 || status == 429:
 		return " (GitHub rate limits the App's credential exchange too; try again after the limit window, or narrow the installation to fewer repositories)"
 	}

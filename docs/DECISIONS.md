@@ -734,3 +734,30 @@ one URL, signed with one secret, so a resource that has no webhook of its own is
 payload. `/webhooks/github` tries the per-resource secret first and the App's secret after, over the same exact bytes
 and the same HMAC rule — nothing about signature verification weakens, only which held secret may satisfy it, and a
 panel without `CODEPLO_GITHUB_APP_WEBHOOK_SECRET` behaves exactly as it did before the App existed.
+
+**A commit status never contains the deployment's error text.** The panel's own failure message is git output,
+compiler stderr, a registry address, sometimes a line a build script echoed — and a commit status is readable by
+everyone who can read the repository, including whoever forks it. So `status.go` publishes a fixed sentence per state
+with the resource's slug in it, and points at the deployment log the panel already redacts. The slug is re-checked
+against the API's own name rule before it crosses the network because it is free text in a public page and its row may
+predate that rule; the resource *id* is never published at all — it identifies a private panel, and a repository's
+status list is not where it belongs.
+
+**Commit statuses are read from the deployment row, not handed down from the engine.** Every caller (`finish`, the
+build step's pending marker, boot recovery) re-reads `status`, `commit_sha` and the source's `repo_url` before it
+reports. In-memory state would be a guess about a row another path may have finalized: observe writes the success, the
+API writes the cancel, and recovery writes the interrupt — often while the engine still believes it is mid-build. A
+status that disagrees with the panel's own record is worse than no status, and a deploy that has already finished does
+not need the engine's opinion of it.
+
+**An interrupted deployment reports GitHub `error`, not `failure`.** The distinction is GitHub's own and it matters:
+`failure` says the commit did not work, and a branch-protection rule will act on that. `error` says the system that
+was checking the commit stopped, which is exactly what a crash or a daemon shutdown mid-deploy is. This is why
+`interrupt()` reports — a check left `pending` after a crash means a "still running" spinner in the repository
+forever, and nothing but boot recovery can tell a slow build from a dead process.
+
+**The report is best effort and bounded, in that order.** Ten seconds on a `WithoutCancel` context, one line in the
+deployment log either way, and no error path back into the deployment: by the time the panel reports, the deploy has
+already happened, and a GitHub outage that failed the deployment would be the panel blaming the commit for the forge
+being down. `Deps.ReportStatus` is nil when the daemon was started without an App, so a panel that has no App makes
+no outbound call and no attempt to explain one.

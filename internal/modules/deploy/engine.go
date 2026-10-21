@@ -16,6 +16,7 @@ import (
 	"github.com/codeplo/codeplo/internal/crypto"
 	"github.com/codeplo/codeplo/internal/jobs"
 	"github.com/codeplo/codeplo/internal/modules/deploy/builders"
+	"github.com/codeplo/codeplo/internal/modules/git/providers"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/policy"
 	"github.com/codeplo/codeplo/internal/store"
@@ -169,8 +170,13 @@ type Deps struct {
 	// It is consulted only for a source with no deploy key and no stored token, so an App installation can never
 	// quietly take over a repository the operator gave their own credential to.
 	GitHubToken func(ctx context.Context, repoURL string) (string, bool, error)
-	DataDir     string
-	Config      Config
+	// ReportStatus publishes one commit status to the forge a Git source came from (plan G7). It is best effort by
+	// contract: an unreachable forge never fails a deployment, because by the time the panel reports, the deploy has
+	// already happened. nil means nothing is told and no request is ever made — which is what a daemon without a
+	// GitHub App passes.
+	ReportStatus func(ctx context.Context, s providers.CommitStatus) error
+	DataDir      string
+	Config       Config
 }
 
 // Engine runs deployments. One Engine per daemon; the queue's single worker gives build concurrency = 1.
@@ -185,7 +191,9 @@ type Engine struct {
 	preDeploy func(context.Context, string) (bool, error)
 	// ghToken is Deps.GitHubToken; nil means no GitHub App is configured on this daemon.
 	ghToken func(context.Context, string) (string, bool, error)
-	cfg     Config
+	// reportStatus is Deps.ReportStatus; nil means the panel tells no forge how its deploys ended.
+	reportStatus func(context.Context, providers.CommitStatus) error
+	cfg          Config
 	// rawSteps keeps the timeouts the caller set explicitly. withDefaults fills every zero value, so without it
 	// the engine could not tell "the tests asked for this bound" from "nobody asked" and would ignore settings.
 	rawSteps StepTimeouts
@@ -200,7 +208,8 @@ func New(d Deps) *Engine {
 		pub = func(string, any) {}
 	}
 	return &Engine{db: d.DB, key: d.Key, rt: d.Runtime, b: d.Builder, edg: d.Edge, pub: pub,
-		preDeploy: d.PreDeploy, ghToken: d.GitHubToken, cfg: d.Config.withDefaults(d.DataDir), rawSteps: d.Config.Steps,
+		preDeploy: d.PreDeploy, ghToken: d.GitHubToken, reportStatus: d.ReportStatus,
+		cfg: d.Config.withDefaults(d.DataDir), rawSteps: d.Config.Steps,
 		running: map[string]context.CancelCauseFunc{}}
 }
 
@@ -532,6 +541,7 @@ func (r *run) execute(ctx context.Context) error {
 // as succeeded; errRolledBack and errSettled mean observe (or the engine's own last resort) already owns the row
 // and the containers that go with it.
 func (e *Engine) finish(ctx context.Context, r *run, err error) {
+	defer e.reportOutcome(ctx, r)
 	switch {
 	case err == nil, errors.Is(err, errRolledBack), errors.Is(err, errSettled):
 		return // the row and the route already agree

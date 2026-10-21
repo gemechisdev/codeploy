@@ -354,6 +354,9 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 		return "", err
 	}
 	_, _ = e.db.ExecContext(ctx, `UPDATE deployments SET commit_sha=?, commit_message=? WHERE id=?`, cr.Commit, cr.Message, r.id)
+	// The commit is now known, which is the earliest point a forge can be told anything: a status is keyed by sha,
+	// so the pending marker a push deserves can only be written once the push's commit has been checked out.
+	e.reportOutcome(ctx, r)
 
 	ctxRel := path.Join(src.BuildPath, deref(r.res.Cfg.Image.Context, "."))
 	ctxDir, err := builders.ConfinePath(dest, ctxRel)

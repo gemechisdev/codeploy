@@ -119,6 +119,7 @@ func run() error {
 	// ghToken is the engine's port: nil when there is no App, in which case a clone uses only what its resource
 	// carries, exactly as it did before the App existed.
 	var ghToken func(context.Context, string) (string, bool, error)
+	var reportStatus func(context.Context, providers.CommitStatus) error
 	if ghSet {
 		ghApp, err := providers.NewGitHubApp(ghCfg.AppID, ghCfg.InstallationID, ghCfg.KeyPEM, ghCfg.APIURL)
 		if err != nil {
@@ -127,6 +128,7 @@ func run() error {
 		ghApp.WebhookSecret = ghCfg.WebhookSecret
 		srv.GitHubApp = ghApp
 		ghToken = ghApp.TokenFor
+		reportStatus = ghApp.PostStatus
 		slog.Info("github app configured", "app_id", ghApp.AppID, "installation_id", ghApp.InstallationID,
 			"api", ghApp.APIURL, "clone_host", ghApp.CloneHost(), "webhook_secret", len(ghApp.WebhookSecret) > 0)
 	}
@@ -167,7 +169,10 @@ func run() error {
 			// The App's installation token is the clone credential for a GitHub repository that carries none of its
 			// own; nil when the daemon was started without one.
 			GitHubToken: ghToken,
-			DataDir:     cfg.DataDir,
+			// The same App tells the repository how the deploy went. Nil without an App, and every deployment
+			// then ends with the commit as unmarked as it was before this existed.
+			ReportStatus: reportStatus,
+			DataDir:      cfg.DataDir,
 			Config: deploy.Config{
 				WorkDir:       filepath.Join(cfg.DataDir, "work"),
 				VolumesRoot:   envOr("CODEPLO_VOLUMES_DIR", filepath.Join(cfg.DataDir, "volumes")),

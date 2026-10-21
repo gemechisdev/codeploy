@@ -148,6 +148,11 @@ func (e *Engine) interrupt(ctx context.Context) (int, error) {
 			continue
 		}
 		e.emit(d.id)
+		// A commit whose deployment was cut short by a crash keeps whatever status it last had — usually `pending`,
+		// which in GitHub's UI means a check that is still running, forever. Recovery is the only moment that knows
+		// the difference between a slow deploy and a dead daemon, so it is the moment that says so. Best effort and
+		// bounded: a forge that is unreachable cannot hold a boot open.
+		e.reportOutcome(ctx, &run{e: e, id: d.id})
 	}
 	return len(list), nil
 }
