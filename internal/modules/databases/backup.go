@@ -63,6 +63,11 @@ func validTrigger(t string) bool {
 	return t == TriggerSchedule || t == TriggerManual || t == TriggerPreRestore || t == TriggerPreDeploy
 }
 
+// JobRun is the queue kind that performs an attempt StartRun opened. The payload is the run id and nothing else:
+// the row already says which schedule, where the bytes go and when the attempt began, so a job that survives a
+// daemon restart needs no more than that to finish correctly.
+const JobRun = "backup.run"
+
 // CreateScheduleInput is one POST /resources/{id}/backups body, already decoded.
 type CreateScheduleInput struct {
 	ResourceID    string

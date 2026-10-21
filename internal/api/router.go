@@ -20,9 +20,12 @@ import (
 	"github.com/codeplo/codeplo/internal/events"
 	"github.com/codeplo/codeplo/internal/jobs"
 	"github.com/codeplo/codeplo/internal/modules"
+	"github.com/codeplo/codeplo/internal/modules/databases"
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/git"
+	"github.com/codeplo/codeplo/internal/modules/monitor"
+	"github.com/codeplo/codeplo/internal/modules/notify"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
 	"github.com/codeplo/codeplo/internal/webui"
@@ -55,13 +58,20 @@ type Server struct {
 	Deploy *deploy.Engine
 	// Git is the P5 source layer (connections, deploy keys, hooks, webhook verification). It is a database-only
 	// service, so wiring it cannot fail; it stays nil only when the daemon built the server without it.
-	Git     *git.Service
-	Started time.Time
-	Version string
-	Commit  string
-	BuiltAt string
-	lim     *limiter
-	replay  *authn.ReplayGuard
+	Git *git.Service
+	// Monitor, Notify and Databases are the P6 operations services. Monitor owns metric series and alert rules,
+	// Notify owns the channels they deliver through, and Databases owns backup schedules, runs and restores. All
+	// three are wired by the daemon; nil means a build without the module, and the handlers answer 500 rather than
+	// showing an empty list that would read as "nothing configured".
+	Monitor   *monitor.Service
+	Notify    *notify.Service
+	Databases *databases.Service
+	Started   time.Time
+	Version   string
+	Commit    string
+	BuiltAt   string
+	lim       *limiter
+	replay    *authn.ReplayGuard
 }
 
 func New(db *sql.DB, key []byte, version, commit, built string) *Server {
@@ -77,6 +87,7 @@ func (s *Server) Routes() []RouteDef {
 	defs = append(defs, s.deploymentRoutes()...)
 	defs = append(defs, s.envRoutes()...)
 	defs = append(defs, s.gitRoutes()...)
+	defs = append(defs, s.opsRoutes()...)
 	implemented := map[string]bool{}
 	for _, d := range defs {
 		implemented[d.Method+" "+d.Path] = true

@@ -282,9 +282,10 @@ asserts — status codes, `fields` keys, message wording, response shapes includ
 
 ## Phase 6 — Operations (2026-10-21): in progress, compiling, **not tested**
 
-Nothing in this phase is wired into the HTTP layer yet: `GET /system/metrics`, the channel and rule routes and the
-backup routes are the handlers task, and the sampler/evaluator/backup ticks on the daemon are the wiring task. The
-packages are written so those two are wiring, not design.
+The API layer is now wired: all fifteen P6 routes are implemented in `internal/api/handlers_ops.go` and served by the
+`Monitor`/`Notify`/`Databases` services the daemon will inject (task #40). What remains in this phase is the daemon
+side — the sampler, evaluator, backup-schedule and cron ticks, the log-retention pass — not the handlers. The
+packages were written so those loops are wiring, not design.
 
 Same instruction as Phases 4 and 5: development only. The gates that ran for every unit below are
 `gofmt -l internal cmd` (empty), `go build ./internal/... ./cmd/...` and
@@ -315,12 +316,15 @@ nothing writes is a claim about a capability that does not exist.
 | Backup pipeline | `internal/modules/databases/backup.go` | schedule CRUD with the form's exact field messages, `StartRun` (202-shaped: the row opens with its final location already chosen, and a second concurrent attempt on a schedule is refused because two `mysqldump`s of one database on a small host is a memory incident), then `Execute` → dump → **verify** → publish → prune. Compression happens in the panel, not the container: piping a dump through gzip inside argv means a shell string built out of operator-supplied names, which is an injection point on every scheduled backup. Success requires a second read of the closed file — size and SHA-256 from disk, compared with what the write pass counted — and for an s3 destination the store's own `Stat` size is confirmed before the staged local copy is deleted. `Execute` returns nil once the row has a final status even when the backup failed, because the queue retries errored jobs and a second attempt against a database that was down reads as two backups in the history. Retention sweeps delete the payload before the row, and age out failed attempts on the same window so the history cannot grow without bound |
 | Restore | `internal/modules/databases/restore.go` | a **verified** pre-restore snapshot first, always to the host's `backups/pre-restore/` whatever the schedule's destination says, and if it cannot be taken the restore does not start — an operator who wants a backup applied over a state they cannot recover from has to say so deliberately, and this panel does not offer it. The payload is read back from disk or the bucket (the recorded size is the read bound: an object that grew past what was verified is not the backup being claimed), gunzipped only if its name says `.gz`, and streamed into the engine's restore step. A file restore ends with stop → start → a bounded wait for the container to report running, so "the RDB was from a newer version and the server refuses to boot" is reported instead of called a success |
 | Supporting exports | `internal/objectstore/s3.go`, `internal/modules/deploy/db.go` | `Client.Prefix()` because Put/Get/Stat/Delete apply the configured prefix themselves, so a stored full URI has to be reduced back to the name before it is used (a location outside the prefix is refused rather than silently re-prefixed); `EnvVar.Runtime()`/`Build()` were unexported predicates that `databases` legitimately needs to tell a dump credential from a build secret |
+| Operations API | `internal/api/handlers_ops.go` | the fifteen routes — one metric chart, five channel routes, three rule routes, six backup routes — each gated on its module and its permission, with the mock's exact messages and audit actions (`channel.created/updated/deleted/tested`, `alert_rule.created/updated`, `backup.schedule_created/run/restored`) and the contract's codes (201 for the two creates, 202 for a queued run, 204 for a delete). Three error mappers rather than one, because each module declares its own `FieldErrors`/`NotFound`/`Conflict` and a module must not import another's vocabulary to say what failed. Deleting a channel also strips it from every alert rule, in the same transaction and through `PatchRule`, since `alert_rules` is the monitor's table. A channel test answers 200 with `ok:false` and the provider's reason — a bad bot token is a result the operator reads, not an error page. `POST /backups/{id}/run` opens the run row and enqueues `databases.JobRun` atomically, so a daemon that dies between the two still has the job it promised. `POST /backups/{id}/restore` is the phase's only step-up route, and it reports an unknown run (404) before it asks for 2FA, matching the mock's order |
+| Status card, for real | `internal/api/handlers_admin.go` | `/system/status` stopped inventing zeroes: `metrics` is the newest host sample (falling back to the host's live readings before the sampler has run), `active_alerts` is `monitor.ActiveRuleCount`, `security_score` is the last audit run's score and `pending_changes` counts `hardening_changes` awaiting confirm. Rates come from a stored sample rather than a fresh read because CPU and network are differences between two counter snapshots |
 
 ## Next
 
-**P6 — Operations** continues: `monitor` (sampler → `metrics_samples`, alert evaluator), the API handlers for the 14
-routes, `databases` + backups (dump via `ExecWithEnv` → `CopyFileOut` → gzip → local or S3, retention, restore), the
-daemon loops, and the log-retention pass. Then P7 (extensibility) and P9 (release hardening); P8 is explicitly later.
+**P6 — Operations** continues with the daemon loops (task #40): the sampler tick and its `metrics.sample` bus event,
+the alert evaluator tick, the backup schedule runner plus the `backup.run` job handler, the `resource_cron_jobs`
+runner, the log-retention pass, `CODEPLO_S3_*` parsing in `internal/config`, the pre-deploy backup hook, and the
+`codeplo cron` CLI. Then P7 (extensibility) and P9 (release hardening); P8 is explicitly later.
 
 
 P5's own leftovers, none of them blocking: the frontend's Source & CI/CD tab (backend parity for it is what the mock

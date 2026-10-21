@@ -17,6 +17,7 @@ import (
 	"github.com/codeplo/codeplo/internal/authz"
 	"github.com/codeplo/codeplo/internal/crypto"
 	"github.com/codeplo/codeplo/internal/events"
+	"github.com/codeplo/codeplo/internal/modules/monitor"
 	"github.com/codeplo/codeplo/internal/platform"
 )
 
@@ -403,12 +404,33 @@ func (s *Server) systemStatus(w http.ResponseWriter, r *http.Request) {
 	if op.Valid && op.String != "" {
 		opu = op.String
 	}
+	// The card shows the newest sample the sampler took, because CPU percentage and network rate are differences
+	// between two readings and a live grab would report zero where the history has a number. Until the first sample
+	// exists — a fresh install, or a daemon whose loops have not started — the host's own instantaneous readings
+	// stand in, which is honest where the previous all-zero metrics were not.
+	metrics := monitor.Metric{MemoryUsedMB: h.RAMUsedMB, MemoryTotalMB: h.RAMTotalMB, DaemonRSSMB: float64(h.DaemonRSSMB),
+		DiskUsedGB: h.DiskUsedGB, DiskTotalGB: h.DiskTotalGB, At: now()}
+	if s.Monitor != nil {
+		if pt, ok, err := s.Monitor.Latest(r.Context(), s.DB, monitor.ScopeHost, ""); err == nil && ok {
+			metrics = pt
+		}
+	}
+	// Both numbers are readings of stored state rather than live work: the score is the last audit run's, and a
+	// pending change is one applied but not yet confirmed, which is the state that can still roll back.
+	var score, pending int
+	_ = s.DB.QueryRowContext(r.Context(), `SELECT score FROM hardening_runs WHERE mode='audit' ORDER BY started_at DESC, id DESC LIMIT 1`).Scan(&score)
+	_ = s.DB.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM hardening_changes WHERE state='pending_confirm'`).Scan(&pending)
+	active := 0
+	if s.Monitor != nil {
+		if n, err := s.Monitor.ActiveRuleCount(r.Context(), s.DB); err == nil {
+			active = n
+		}
+	}
 	writeJSON(w, 200, map[string]any{
 		"hostname": h.Hostname, "os": h.OS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(), "ram_total_mb": h.RAMTotalMB,
-		"support_tier": tier, "uptime_s": int(time.Since(s.Started).Seconds()),
-		"metrics": map[string]any{"cpu_percent": 0, "memory_used_mb": h.RAMUsedMB, "memory_total_mb": h.RAMTotalMB, "daemon_rss_mb": h.DaemonRSSMB,
-			"disk_used_gb": h.DiskUsedGB, "disk_total_gb": h.DiskTotalGB, "net_rx_kbps": 0, "net_tx_kbps": 0, "container_count": 0, "at": now()},
-		"operator_configured": opu != nil, "operator_user": opu, "security_score": 0, "pending_changes": 0, "active_alerts": 0, "server_now": now(),
+		"support_tier": tier, "uptime_s": int(time.Since(s.Started).Seconds()), "metrics": metrics,
+		"operator_configured": opu != nil, "operator_user": opu, "security_score": score, "pending_changes": pending,
+		"active_alerts": active, "server_now": now(),
 	})
 }
 

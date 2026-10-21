@@ -390,7 +390,7 @@ func (s *Server) bridge(w http.ResponseWriter, r *http.Request, sessionID string
 		ok := alive
 		mu.Unlock()
 		if ok {
-			notify(conn, m)
+			writeControl(conn, m)
 		}
 	}
 	timer := time.AfterFunc(idle, func() {
@@ -484,9 +484,9 @@ func (s *Server) bridge(w http.ResponseWriter, r *http.Request, sessionID string
 	s.endSession(sessionID, final)
 }
 
-// notify sends one JSON control frame on its own short deadline. A server-initiated end writes its reason
+// writeControl sends one JSON control frame on its own short deadline. A server-initiated end writes its reason
 // before the connection is torn down, so it must never ride the bridge context that is being cancelled.
-func notify(conn *websocket.Conn, m map[string]any) {
+func writeControl(conn *websocket.Conn, m map[string]any) {
 	b, _ := json.Marshal(m)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

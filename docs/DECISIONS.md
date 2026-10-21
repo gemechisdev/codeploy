@@ -558,3 +558,35 @@ would give two places the same promise, and one of them would drift.
 **`databases.Ops` and `monitor.Containers` are narrower than `runtime.Manager`.** Each port declares the methods that
 package actually calls. It keeps the monitor wireable on a host where container creation is refused, and it means a
 test fixture is five methods rather than a lifecycle.
+
+**Three error mappers in the API layer, not one.** `notify`, `monitor` and `databases` each declare their own
+`FieldErrors`/`NotFound`/`Conflict`, because a module must not import another module's vocabulary to say what failed.
+The cost is three near-identical 15-line functions; the alternative — a shared `internal/apierrs` package the modules
+import — would put HTTP semantics inside the modules, which is the dependency the phase plan refuses.
+
+**A channel test answers 200 with `ok: false`.** A rejected bot token is information the operator acts on in the form,
+and an error envelope would hide the provider's reason behind a generic failure. The same reasoning makes a disabled
+channel a refusal in the detail rather than a 409.
+
+**Deleting a channel rewrites the alert rules in the same transaction, through `PatchRule`.** `alert_rules` belongs to
+the monitor, and the notify module's own docstring says the handler prunes it; writing the JSON column from the API
+layer would let two owners hold one invariant. `Deliver` already skips a vanished channel, so this is hygiene rather
+than a crash guard — and it is why a daemon built without the monitor can still delete channels.
+
+**`POST /backups/{id}/run` returns 202 with the row, and the dump happens in a job.** A real `pg_dumpall` outlives any
+sane HTTP timeout, and an operator who is watching the run list does not need a request held open to learn the answer.
+Opening the run and enqueueing `databases.JobRun` share one transaction, so a daemon that dies between the two cannot
+leave a promised backup unqueued; the payload is the run id because the row already names the schedule, the destination
+and the start time.
+
+**Restore reports an unknown run (404) before it asks for step-up.** The contract puts `x-step-up` on the route, but the
+mock's order is lookup → status → step-up, and a client that was told "backup run not found" learns something it can act
+on while one told `step_up_required` learns nothing. The module's own checks run again inside `Restore`, so the shortcut
+is a message order, not a skipped guard.
+
+**`/system/status` reads its metrics from the newest stored sample instead of taking a fresh reading.** CPU percentage
+and network rate are differences between two `/proc` snapshots, so a live read has no denominator and would report zero
+where the ring buffer has a real number. Before the sampler's first tick there is no sample, and the host's instantaneous
+readings stand in — which is the honest fallback the all-zero placeholders were not. `security_score` and
+`pending_changes` are two stored-state counts (last audit run, unconfirmed hardening changes) rather than a live
+hardening run, because the status endpoint is on every page load and must never shell out.
