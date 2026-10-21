@@ -808,3 +808,25 @@ build wrote into it, and nothing on this host will ever name it again. So `ReapR
 difference, the delete route never sets it, and only a preview's teardown does — and it sets it only while no other
 preview row still claims the same hostname, because a pull request closed and reopened gets the same slug and the
 same directory, and destroying that would be this transaction deleting a workload that exists now.
+
+**A preview copies its parent's secrets without ever reading them.** `resource_env_vars` and `resource_credentials`
+store bytes the master key sealed, and a preview is the same daemon with the same key, so duplicating them is an
+insert of the same blob — which is why `previews.Deps` has no key field and why nothing in the package can open a
+value. It is also the decision the fork and draft refusals exist to make safe: a preview holds the parent's database
+password and its deploy key in the only form this panel keeps them, so the code it runs has to be the team's own
+branch, not a stranger's proposal. The three things taken out of the copied configuration are what keeps the copy
+narrow: the release command (unreviewed code must not migrate the real database), the published ports (the parent
+already holds those loopback bindings), and image retention above one generation of a branch nobody merged.
+
+**The cap evicts instead of refusing.** A service at its limit that gets a new pull request takes its least-live
+preview down rather than telling the person who just opened the request that they cannot have one. The panel's own
+measure of least-live is the expiry, which activity moves forward, so the branch that goes is the one nobody has
+pushed to in longest; a preview whose resource row is already gone is closed first, since that is bookkeeping rather
+than a teardown. Refusing would make the cap a limit on the *number of people who can use the feature*, and the whole
+reason the feature exists is the person who just opened the request.
+
+**The sweep runs with the feature flag off.** `git.preview_deploys` being off means previews should stop happening,
+and a preview container holding the parent's database password that keeps running under a flag saying it should not
+exist is the difference between a switch and a suggestion. So the reconciliation pass is unconditional, and it
+reports "Preview environments are disabled" as its reason — which is also why turning the base domain off or away
+does not stop it either: a hostname that no longer resolves still describes a workload with real credentials in it.
