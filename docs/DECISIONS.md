@@ -761,3 +761,41 @@ deployment log either way, and no error path back into the deployment: by the ti
 already happened, and a GitHub outage that failed the deployment would be the panel blaming the commit for the forge
 being down. `Deps.ReportStatus` is nil when the daemon was started without an App, so a panel that has no App makes
 no outbound call and no attempt to explain one.
+
+## Phase 7 — pull-request previews (G8)
+
+**A preview is an ordinary resource, and its bookkeeping row has no foreign key on purpose.** Every other table here
+references `resources`, because a dangling child row is normally a bug. `pr_previews` is the exception: a CASCADE on
+the parent would delete the row that says the preview is disposable while the container it describes keeps running,
+and a RESTRICT would make deleting the real service fail with a constraint error that reads as a broken delete rather
+than as a preview that has to go first. An FK on the preview side is the same trap from the other direction — an
+operator who deletes the preview from its own resource page is entitled to, and the surviving row is the one that
+still has the container to reap. So the sweep reconciles against reality (parent gone, resource gone, clock out)
+instead of trusting a pointer.
+
+**A pull request from a fork never gets a preview.** A preview is built from the parent service's own configuration —
+its environment and its sealed credentials copied, because that is the only way the branch runs as it would in
+production — so running outside contributors' code with them would hand them the database password for the service
+they are proposing to change. The refusal is what makes the copy acceptable, which is why it is checked in the gate
+rather than left to a policy note: GitHub's own `fork` flag and a canonical comparison of head against base, either
+one enough. A preview shows a *reviewer* their own team's branch; it is not a sandbox for third-party code.
+
+**A draft is refused, and teardown is not.** An author who has not asked for a review has not asked for the branch to
+be run. But `converted_to_draft` and `closed` take the preview down whatever the request said before, because "this
+branch is not safe to run" is never a reason to leave something running. So the gate orders its checks so the
+teardown branch returns before the build refusals, and takes nothing that the build cares about (base branch, fork,
+title marker) as a precondition for cleaning up.
+
+**An unusable head is cleared at parse, not refused.** ParsePullRequest refuses only a delivery with no pull request
+object and no number — those describe nothing the panel could key a row by. A head ref that is not a legal branch
+name, and a sha that is not a sha, are set to empty and the gate refuses the *build* with a reason: a payload whose
+branch name is garbage cannot become a clone argument or a commit-status URL segment, and a `closed` delivery that
+carries one still has to reach the teardown path. Refusing at parse would strand the container until its TTL expired.
+
+**The switch is a feature flag; the limits are settings.** `git.preview_deploys` is off by default and not
+release-gated, because the thing that makes previews dangerous is not the code path, it is running unreviewed code on
+this host — and an operator who turns it on has said they want that. The three caps (`git.preview_ttl_hours`,
+`git.preview_max`, `git.preview_memory_mb`) are settings because they are tuned against one repository's traffic, not
+decided once: the same reason the engine's build timeout is a setting, and the reason the API validates each range.
+Neither does anything without `CODEPLO_PREVIEW_DOMAIN`, because a hostname under a base domain that has no wildcard
+record is a route that answers nothing.

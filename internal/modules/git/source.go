@@ -39,6 +39,10 @@ var gitURLRe = regexp.MustCompile(`^(git@[\w.-]+:[\w./-]+\.git|https://[\w.-]+/[
 // as an option by some plumbing commands, and control characters reach the log verbatim.
 var branchRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 
+// ValidBranch is the panel's branch rule, exported so a value arriving from outside the panel can be checked
+// against the same grammar the source validator uses instead of a second copy of it.
+func ValidBranch(name string) bool { return branchRe.MatchString(name) }
+
 // ListConnections returns every connection. A panel holds a handful of them, so there is no cursor.
 func (s *Service) ListConnections(ctx context.Context, q Querier) ([]Connection, error) {
 	rows, err := q.QueryContext(ctx, `SELECT id, kind, name, created_at FROM git_connections ORDER BY id`)
