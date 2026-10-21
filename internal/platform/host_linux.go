@@ -26,6 +26,14 @@ func kb(line string) int {
 	return n / 1024
 }
 
+// AppArmorEnabled reports whether the host kernel has AppArmor active. The engine adds the
+// apparmor=docker-default security option only where it is: asking for a profile on a host without AppArmor
+// produces a container that cannot start, not a hardened one.
+func AppArmorEnabled() bool {
+	b, err := os.ReadFile("/sys/module/apparmor/parameters/enabled")
+	return err == nil && strings.TrimSpace(string(b)) == "Y"
+}
+
 func Host() HostInfo {
 	h := HostInfo{OS: "linux"}
 	h.Hostname, _ = os.Hostname()
