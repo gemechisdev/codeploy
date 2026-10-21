@@ -205,6 +205,13 @@ func (s *Service) MaxPoints(ctx context.Context) int {
 	return settingInt(ctx, s.DB, "metrics.max_samples", 20160)
 }
 
+// EvalIntervalS is how often the alert evaluator runs. It is its own setting rather than the sample interval
+// because detection cost is not sampling cost: an evaluator reads every rule and every firing, while a sampler
+// reads two /proc files.
+func (s *Service) EvalIntervalS(ctx context.Context) int {
+	return settingInt(ctx, s.DB, "alerts.eval_interval_s", 60)
+}
+
 // RangePoints is the mock's range table: the chart asks for a window and gets this many points at the default
 // 60-second interval, capped at 240 so a 6-hour and a 24-hour range cost the same to send.
 func RangePoints(r string) (points int, ok bool) {
