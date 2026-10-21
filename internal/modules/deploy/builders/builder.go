@@ -21,10 +21,12 @@ type LogFunc func(stream, line string)
 type RegistryAuth struct{ Server, Username, Password string }
 
 // GitSource is a repository to clone. Exactly one of DeployKey (PEM) or Token may be set; both empty clones publicly.
+// MaxBytes bounds the clone (0 means unbounded); the caller sets it from the git.max_clone_mb setting.
 type GitSource struct {
 	URL, Branch string
 	DeployKey   []byte
 	Token       string
+	MaxBytes    int64
 }
 
 type CloneResult struct{ Commit, Message string }
@@ -56,6 +58,9 @@ var (
 	// ErrOutOfMemory and ErrNoSpace classify failures the engine reports with an actionable message.
 	ErrOutOfMemory = errors.New("the build was killed: it ran out of memory")
 	ErrNoSpace     = errors.New("no space left on device")
+	// ErrSourceTooLarge is a clone that finished but does not fit the configured budget: a repository nobody
+	// checked, not a broken host.
+	ErrSourceTooLarge = errors.New("the repository is larger than the clone limit")
 
 	secretIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	gitURLRe   = regexp.MustCompile(`^(https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._~/%+-]+|git@[A-Za-z0-9.-]+:[A-Za-z0-9._~/+-]+|ssh://git@[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._~/+-]+)$`)

@@ -441,6 +441,9 @@ func (r *run) do(ctx context.Context, status, step string, timeout time.Duration
 	if errors.Is(err, builders.ErrOutOfMemory) {
 		return fail(step, "%s. An on-host build is capped at half the memory free at pre-flight; a build that needs more wants a larger host or a prebuilt image.", err.Error())
 	}
+	if errors.Is(err, builders.ErrSourceTooLarge) {
+		return fail(step, "%s. Raise the limit in settings, or build the image in CI and deploy it with a hook.", err.Error())
+	}
 	return &StepError{Step: step, Err: err}
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -182,12 +183,49 @@ func (c *CLI) Clone(ctx context.Context, src GitSource, dest string, log LogFunc
 	if err != nil {
 		return CloneResult{}, classify(out, fmt.Errorf("git clone failed: %w", err))
 	}
+	// --depth bounds history, not size: a repository of large binaries clones in seconds and then fills the disk at
+	// the build. The check is after the clone and before the build because the clone is the thing being bounded.
+	if src.MaxBytes > 0 {
+		used, err := dirBytes(dest)
+		if err != nil {
+			return CloneResult{}, err
+		}
+		if used > src.MaxBytes {
+			return CloneResult{}, fmt.Errorf("%w: %s MB checked out, limit %s MB (git.max_clone_mb)",
+				ErrSourceTooLarge, megabytes(used), megabytes(src.MaxBytes))
+		}
+	}
 	sha, err := run(ctx, dest, env, nil, c.git(), "rev-parse", "HEAD")
 	if err != nil {
 		return CloneResult{}, err
 	}
 	msg, _ := run(ctx, dest, env, nil, c.git(), "log", "-1", "--pretty=%s")
 	return CloneResult{Commit: strings.TrimSpace(lastLine(sha)), Message: strings.TrimSpace(lastLine(msg))}, nil
+}
+
+// dirBytes sums the regular files under root. Symlinks are not followed and directories are not counted: a
+// repository must not be able to inflate the number, or the build context, by pointing outside the clone.
+func dirBytes(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
+}
+
+func megabytes(n int64) string {
+	return strconv.FormatFloat(float64(n)/(1<<20), 'f', 1, 64)
 }
 
 func lastLine(s string) string {

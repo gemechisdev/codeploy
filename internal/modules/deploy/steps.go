@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codeplo/codeplo/internal/modules/deploy/builders"
+	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/policy"
 	"github.com/codeplo/codeplo/internal/store"
@@ -300,7 +301,10 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 	if branch == "" {
 		branch = src.Branch
 	}
-	gs := builders.GitSource{URL: src.RepoURL, Branch: branch}
+	// The git settings bound this clone: the same numbers the panel writes are the ones the engine enforces, so a
+	// limit an operator raises actually reaches the step that needs it.
+	limits := git.ReadCloneLimits(ctx, e.db)
+	gs := builders.GitSource{URL: src.RepoURL, Branch: branch, MaxBytes: limits.MaxBytes}
 	if src.Kind == "deploy_key_git" {
 		k := credential(ctx, e.db, e.key, r.res.ID, "deploy_key")
 		if k == nil {
@@ -313,8 +317,16 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 		r.logw.red = r.red
 	}
 	r.logw.Sys("cloning " + src.RepoURL + " (" + branch + ")")
-	cr, err := e.b.Clone(ctx, gs, dest, r.logFn())
+	// The clone gets its own deadline: a host that black-holes the connection has to fail this deployment after
+	// git.clone_timeout_s, not hold the worker until the whole build budget is gone.
+	cloneCtx, cancelClone := context.WithTimeout(ctx, limits.Timeout)
+	cr, err := e.b.Clone(cloneCtx, gs, dest, r.logFn())
+	timedOut := errors.Is(cloneCtx.Err(), context.DeadlineExceeded)
+	cancelClone()
 	if err != nil {
+		if timedOut {
+			return "", fail("build", "Cloning this repository took more than %s and was stopped. Raise git.clone_timeout_s, or build the image in CI and deploy it with a hook.", limits.Timeout)
+		}
 		return "", err
 	}
 	_, _ = e.db.ExecContext(ctx, `UPDATE deployments SET commit_sha=?, commit_message=? WHERE id=?`, cr.Commit, cr.Message, r.id)

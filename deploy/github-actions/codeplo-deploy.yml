@@ -1,0 +1,176 @@
+# codeplo-deploy.yml — build a container image in GitHub Actions and hand it to a codeplo panel.
+#
+# This is a reusable (workflow_call) workflow. It never clones or builds on the panel's host: it builds here, pushes
+# the image to a registry the panel can pull from, and then calls that resource's deploy hook. The panel pulls the
+# image, so its host spends no CPU or memory on the build -- which is the point of using CI instead of on-host builds.
+#
+# Setup, once per resource:
+#   1. Panel -> resource -> Source & CI/CD -> deploy hook -> Create. Copy the token; it is shown once.
+#   2. Repository secrets:
+#        CODEPLO_DEPLOY_URL    https://<your-panel>/api/v1/hooks/deploy/<token>
+#        REGISTRY_USERNAME     a registry account the panel also uses to pull (ghcr.io uses a fine-grained PAT
+#                              with `package:write`; the panel needs `package:read` on the same package)
+#        REGISTRY_PASSWORD     that account's password or token
+#   3. Call it from your own workflow:
+#
+#        on:
+#          push: { branches: [main] }
+#        jobs:
+#          deploy:
+#            uses: ./org/repo/.github/workflows/codeplo-deploy.yml@main   # or codeplo/codeploy's copy
+#            with:
+#              image: ghcr.io/org/repo
+#              tag: ${{ github.sha }}
+#            secrets:
+#              CODEPLO_DEPLOY_URL: ${{ secrets.CODEPLO_DEPLOY_URL }}
+#              REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+#              REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+#
+# The `image` you push must be the one the hook's policy allows: a hook issued for ghcr.io/org/app:* deploys
+# ghcr.io/org/app:<anything>, and refuses ghcr.io/org/app-evil:latest or anyone else's repository. Keep the tag
+# unique per build (the commit SHA) so a rollback can name an exact image, and give the panel's resource registry
+# credentials for the same repository or the pull will fail with a 401 it cannot get past.
+name: codeplo deploy
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Repository to push, without a tag (ghcr.io/org/repo). Must match the hook's image policy.
+        required: true
+        type: string
+      tag:
+        description: Tag to push and deploy. Defaults to the commit SHA.
+        required: false
+        type: string
+        default: ${{ github.sha }}
+      registry:
+        description: Registry server to log in to.
+        required: false
+        type: string
+        default: ghcr.io
+      dockerfile:
+        description: Path to the Dockerfile, relative to the repository root.
+        required: false
+        type: string
+        default: Dockerfile
+      context:
+        description: Build context, relative to the repository root.
+        required: false
+        type: string
+        default: .
+      build_args:
+        description: Newline- or comma-separated --build-arg values (key=value). Never put a secret here.
+        required: false
+        type: string
+        default: ""
+      platforms:
+        description: Build platforms. The panel runs linux/amd64 or linux/arm64 -- match its host.
+        required: false
+        type: string
+        default: linux/amd64
+      skip_deploy:
+        description: Build and push, but do not call the deploy hook (for verifying a Dockerfile change first).
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      CODEPLO_DEPLOY_URL:
+        description: The resource's deploy-hook URL, token included. Shown once when the hook is created.
+        required: true
+      REGISTRY_USERNAME:
+        description: Registry account for pushing.
+        required: true
+      REGISTRY_PASSWORD:
+        description: Registry password or token for pushing.
+        required: true
+
+# Least privilege: this workflow writes packages and reads the repository, nothing else. It never needs the
+# repository's write token, so a compromised dependency cannot push a commit.
+permissions:
+  contents: read
+  packages: write
+
+# One deploy at a time per image: two concurrent pushes would each finish with a hook call, and the panel would
+# reject the second while the first is still running.
+concurrency:
+  group: codeplo-deploy-${{ inputs.image }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy ${{ inputs.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Decide whether this commit deploys
+        id: gate
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          SKIP: ${{ inputs.skip_deploy }}
+        run: |
+          # The panel honours [skip deploy] in the head commit message for webhook deploys. Doing the same here
+          # means the marker works whichever route a build takes.
+          if [ "$SKIP" = "true" ] || printf '%s' "$MESSAGE" | grep -qiF '[skip deploy]'; then
+            echo 'deploy=false' >>"$GITHUB_OUTPUT"
+            echo 'Skipping the deploy hook (skip_deploy input or [skip deploy] in the commit message).'
+          else
+            echo 'deploy=true' >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ inputs.image }}:${{ inputs.tag }}
+          build-args: ${{ inputs.build_args }}
+          # A provenance attestation would make the multi-platform index unverifiable by some runtimes; the panel
+          # pulls by tag, so keep the image plain and predictable.
+          provenance: false
+
+      - name: Call the codeplo deploy hook
+        if: steps.gate.outputs.deploy == 'true'
+        env:
+          DEPLOY_URL: ${{ secrets.CODEPLO_DEPLOY_URL }}
+          IMAGE: ${{ inputs.image }}:${{ inputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          # The token is in the URL, so nothing here may echo it: no `set -x`, and the body is built by jq so the
+          # image name cannot break out of the JSON. GitHub masks registered secrets in logs, but a URL printed by
+          # curl on failure would still be a leak waiting to happen -- --fail-with-body prints the response only.
+          body=$(jq -n --arg image "$IMAGE" --arg digest "$DIGEST" '{image: $image, digest: $digest}')
+          attempt=0
+          until [ "$attempt" -ge 3 ]; do
+            attempt=$((attempt + 1))
+            if response=$(curl --silent --show-error --fail-with-body --max-time 30 \
+                -X POST "$DEPLOY_URL" -H 'content-type: application/json' --data "$body"); then
+              echo "codeplo accepted the deploy: $response"
+              exit 0
+            fi
+            echo "attempt $attempt of 3 failed"
+            sleep $((attempt * 5))
+          done
+          echo "::error::The codeplo deploy hook rejected this image. Check that the tag matches the resource's" \
+            "image policy, that the hook has not been rotated, and that the panel is reachable."
+          exit 1
+
+      - name: Report a skipped deploy
+        if: steps.gate.outputs.deploy != 'true'
+        run: echo "Image ${{ inputs.image }}:${{ inputs.tag }} was pushed without deploying."
