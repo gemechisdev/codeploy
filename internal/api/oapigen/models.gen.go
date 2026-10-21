@@ -961,6 +961,24 @@ func (e ResourceConfigRestart) Valid() bool {
 	}
 }
 
+// Defines values for ResourceConfigRollout.
+const (
+	StartFirst ResourceConfigRollout = "start_first"
+	StopFirst  ResourceConfigRollout = "stop_first"
+)
+
+// Valid indicates whether the value is a known member of the ResourceConfigRollout enum.
+func (e ResourceConfigRollout) Valid() bool {
+	switch e {
+	case StartFirst:
+		return true
+	case StopFirst:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceSourceKind.
 const (
 	DeployKeyGit ResourceSourceKind = "deploy_key_git"
@@ -2058,9 +2076,18 @@ type ResourceConfig struct {
 		MemoryMb  int     `json:"memory_mb"`
 		PidsLimit int     `json:"pids_limit"`
 	} `json:"limits"`
-	Port         int                   `json:"port"`
-	Restart      ResourceConfigRestart `json:"restart"`
-	RetainImages int                   `json:"retain_images"`
+	Port int `json:"port"`
+
+	// PublishedPorts Explicit opt-in to publish ports; owner-only and audit-flagged. Bindings are 127.0.0.1 only, never 0.0.0.0.
+	PublishedPorts *[]int `json:"published_ports,omitempty"`
+
+	// ReleaseCommand Runs once in a one-off container from the new image, before the route switches. A failure aborts the deployment. Application rollback is not database rollback.
+	ReleaseCommand *[]string             `json:"release_command,omitempty"`
+	Restart        ResourceConfigRestart `json:"restart"`
+	RetainImages   int                   `json:"retain_images"`
+
+	// Rollout start_first (default) keeps the previous container serving until the new one is healthy. stop_first stops it first, for hosts too small to hold both.
+	Rollout *ResourceConfigRollout `json:"rollout,omitempty"`
 }
 
 // ResourceConfigImageMode defines model for ResourceConfig.Image.Mode.
@@ -2068,6 +2095,9 @@ type ResourceConfigImageMode string
 
 // ResourceConfigRestart defines model for ResourceConfig.Restart.
 type ResourceConfigRestart string
+
+// ResourceConfigRollout start_first (default) keeps the previous container serving until the new one is healthy. stop_first stops it first, for hosts too small to hold both.
+type ResourceConfigRollout string
 
 // ResourcePage defines model for ResourcePage.
 type ResourcePage struct {

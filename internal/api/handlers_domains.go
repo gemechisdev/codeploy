@@ -91,6 +91,11 @@ func (s *Server) listResourceDomains(w http.ResponseWriter, r *http.Request) {
 	if !s.moduleOn(w, r, "edge") {
 		return
 	}
+	// P4 made this checkable: a domain list under an id that is not a resource is a typo or a stale link, and
+	// answering 200-with-nothing would present a deleted resource as an empty one.
+	if _, ok := s.findResource(w, r, chi.URLParam(r, "id")); !ok {
+		return
+	}
 	s.writeDomainPage(w, r, chi.URLParam(r, "id"))
 }
 
@@ -119,6 +124,13 @@ func (s *Server) createResourceDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	p := from(r)
 	rid := chi.URLParam(r, "id")
+	// Attaching a domain to a resource that does not exist would create a row nothing routes (domains.resource_id
+	// has no FK), and the panel would show a site that can never serve. Checked before the hostname so a bad id
+	// reports the id, not the name.
+	cur, ok := s.findResource(w, r, rid)
+	if !ok {
+		return
+	}
 	var b struct {
 		Hostname    string `json:"hostname"`
 		ForceHTTPS  *bool  `json:"force_https"`
@@ -182,7 +194,7 @@ func (s *Server) createResourceDomain(w http.ResponseWriter, r *http.Request) {
 	s.Bus.Publish("edge.changed", map[string]any{"domain_id": id})
 	s.reconcileAfter()
 	writeJSON(w, 201, map[string]any{
-		"id": id, "resource_id": rid, "resource_name": nil, "hostname": h,
+		"id": id, "resource_id": cur.ID, "resource_name": cur.Name, "hostname": h,
 		"is_panel": false, "force_https": fh, "redirect_www": rw,
 		"cert_status": "issuing", "cert_expires_at": nil, "cert_error": nil,
 		"issuer": "", "upstream": "", "created_at": created,

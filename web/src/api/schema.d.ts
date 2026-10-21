@@ -1900,6 +1900,15 @@ export interface components {
             /** @enum {string} */
             restart: "unless-stopped" | "always" | "on-failure" | "no";
             retain_images: number;
+            /** @description Runs once in a one-off container from the new image, before the route switches. A failure aborts the deployment. Application rollback is not database rollback. */
+            release_command?: string[];
+            /**
+             * @description start_first (default) keeps the previous container serving until the new one is healthy. stop_first stops it first, for hosts too small to hold both.
+             * @enum {string}
+             */
+            rollout?: "start_first" | "stop_first";
+            /** @description Explicit opt-in to publish ports; owner-only and audit-flagged. Bindings are 127.0.0.1 only, never 0.0.0.0. */
+            published_ports?: number[];
         };
         Resource: {
             id: string;

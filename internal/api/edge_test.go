@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"io"
 	"net"
 	"net/http"
@@ -11,6 +13,26 @@ import (
 
 	"github.com/codeplo/codeplo/internal/modules/edge"
 )
+
+// seedEdgeResources creates two real resources for the domain routes. Since P4 a domain can only be attached to a
+// resource that exists (404 otherwise), so these fixtures hold rows rather than bare ids.
+func seedEdgeResources(t *testing.T, db *sql.DB) {
+	t.Helper()
+	cfg := `{"image":{"mode":"pull","ref":"nginx:latest"},"port":8080,"healthcheck":{"path":"/","interval_s":10,` +
+		`"retries":3,"start_period_s":10,"timeout_s":5},"limits":{"memory_mb":256,"cpus":0.5,"pids_limit":256},` +
+		`"isolation":{"cap_add":[],"trusted":false},"restart":"unless-stopped","retain_images":5}`
+	must := func(q string, args ...any) {
+		if _, err := db.ExecContext(context.Background(), q, args...); err != nil {
+			t.Fatalf("seed: %v\n%s", err, q)
+		}
+	}
+	must(`INSERT INTO projects(id,name,slug,created_at) VALUES ('prj_edge','Edge','edge',?)`, now())
+	must(`INSERT INTO environments(id,project_id,name,created_at) VALUES ('env_edge','prj_edge','production',?)`, now())
+	for _, id := range []string{"res_1", "res_2"} {
+		must(`INSERT INTO resources(id,environment_id,type,name,slug,config_json,desired_state,created_at)
+			VALUES (?,?, 'app',?,?,?, 'stopped',?)`, id, "env_edge", id, strings.ToLower(id), cfg, now())
+	}
+}
 
 // fakeCaddy is a stub of the Caddy admin API served over a unix socket, so edge tests never require real Caddy.
 // It records how many times POST /load happened so a read-only path can be proven not to mutate the edge.
@@ -71,6 +93,7 @@ func (e *env) wireEdge(socket string) {
 func TestEdgeStatusIsReadOnly(t *testing.T) {
 	e := newEnv(t)
 	c, _ := e.bootstrap()
+	seedEdgeResources(t, e.s.DB)
 	// Create a domain before wiring the reconciler so no background reconcile can POST /load.
 	if w, _ := c.post("/resources/res_1/domains", map[string]any{"hostname": "shop.example.com"}); w.Code != 201 {
 		t.Fatalf("create domain: %d", w.Code)
@@ -96,6 +119,7 @@ func TestEdgeStatusIsReadOnly(t *testing.T) {
 func TestEdgeReconcileSuccessAndCaddyDown(t *testing.T) {
 	e := newEnv(t)
 	c, _ := e.bootstrap()
+	seedEdgeResources(t, e.s.DB)
 	// Create the domain before wiring so no background reconcile touches the stub counts.
 	if w, _ := c.post("/resources/res_1/domains", map[string]any{"hostname": "shop.example.com"}); w.Code != 201 {
 		t.Fatalf("create domain: %d", w.Code)
@@ -124,6 +148,7 @@ func TestEdgeReconcileSuccessAndCaddyDown(t *testing.T) {
 func TestDomainsCRUDConflictAndAudit(t *testing.T) {
 	e := newEnv(t)
 	c, _ := e.bootstrap()
+	seedEdgeResources(t, e.s.DB)
 
 	w, d := c.post("/resources/res_1/domains", map[string]any{"hostname": "App.Example.com"})
 	if w.Code != 201 {

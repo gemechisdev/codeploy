@@ -4311,6 +4311,28 @@ components:
           - 'no'
         retain_images:
           type: integer
+        release_command:
+          type: array
+          items:
+            type: string
+          description: >
+            Runs once in a one-off container from the new image, before the route switches. A failure
+            aborts the deployment. Application rollback is not database rollback.
+        rollout:
+          type: string
+          enum:
+          - start_first
+          - stop_first
+          description: >
+            start_first (default) keeps the previous container serving until the new one is healthy.
+            stop_first stops it first, for hosts too small to hold both.
+        published_ports:
+          type: array
+          items:
+            type: integer
+          description: >
+            Explicit opt-in to publish ports; owner-only and audit-flagged. Bindings are 127.0.0.1 only,
+            never 0.0.0.0.
       additionalProperties: false
       required:
       - image

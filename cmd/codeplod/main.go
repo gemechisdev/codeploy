@@ -17,6 +17,8 @@ import (
 	"github.com/codeplo/codeplo/internal/api"
 	"github.com/codeplo/codeplo/internal/app"
 	"github.com/codeplo/codeplo/internal/config"
+	"github.com/codeplo/codeplo/internal/modules/deploy"
+	"github.com/codeplo/codeplo/internal/modules/deploy/builders"
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
@@ -44,7 +46,6 @@ func run() error {
 	defer stop()
 
 	srv := api.New(db, key, app.Version, app.Commit, app.BuiltAt)
-	go srv.Jobs.Run(ctx)
 
 	// Managed Caddy edge: when the module is enabled the daemon owns the reconciler, runs one reconcile at
 	// startup (non-fatal if Caddy is still coming up) and supervises it in a loop tied to the daemon context.
@@ -54,6 +55,9 @@ func run() error {
 		}
 		return d
 	}
+	// reconcileEdge is the engine's route-refresh hook; nil when the edge module is off, which the engine treats
+	// as "nothing to do" rather than a failure.
+	var reconcileEdge func(context.Context) error
 	if srv.Reg.Enabled(ctx, "edge") {
 		adminSocket := envOr("CODEPLO_CADDY_ADMIN_SOCKET", "/run/codeplo/caddy-admin.sock")
 		rec := &edge.Reconciler{
@@ -65,17 +69,21 @@ func run() error {
 			Run:     platform.DefaultRunner,
 		}
 		srv.Edge = rec
+		reconcileEdge = func(c context.Context) error { _, err := rec.Reconcile(c); return err }
 		if _, err := rec.Reconcile(ctx); err != nil {
 			slog.Warn("initial edge reconcile deferred to supervisor", "err", err)
 		}
 		go rec.Loop(ctx, 30*time.Second)
 	}
 
-	// Container runtime: shared by the container shell (terminal module) and resource logs (deploy module). It
+	// Container runtime: shared by the container shell (terminal module), resource logs and the deploy engine. It
 	// only dials the Docker socket per request, so wiring it never fails when Docker is absent; handlers then
 	// report the runtime as unavailable.
+	var docker *runtime.Docker
+	dockerSocket := envOr("CODEPLO_DOCKER_SOCKET", "/var/run/docker.sock")
 	if srv.Reg.Enabled(ctx, "terminal") || srv.Reg.Enabled(ctx, "deploy") {
-		srv.Runtime = runtime.NewDocker(envOr("CODEPLO_DOCKER_SOCKET", "/var/run/docker.sock"))
+		docker = runtime.NewDocker(dockerSocket)
+		srv.Runtime = docker
 	}
 	if srv.Reg.Enabled(ctx, "terminal") {
 		srv.Terminals = terminal.NewStore(db)
@@ -87,6 +95,32 @@ func run() error {
 			slog.Info("closed terminal sessions left open by a previous run", "count", n)
 		}
 	}
+
+	// Deployment engine. Recovery runs before the queue starts: a deployment the previous process was mid-way
+	// through has to become `interrupted`, and its leftover containers removed, before a worker could pick up
+	// work that assumes a clean host. If Docker is down this cannot complete, and the daemon still boots -- the
+	// queue simply reports the runtime as unavailable per deployment instead of the whole panel failing.
+	if srv.Reg.Enabled(ctx, "deploy") && docker != nil {
+		eng := deploy.New(deploy.Deps{
+			DB: db, Key: key, Runtime: docker,
+			Builder: &builders.CLI{Socket: dockerSocket},
+			Edge:    reconcileEdge,
+			Publish: func(name string, data any) { srv.Bus.Publish(name, data) },
+			DataDir: cfg.DataDir,
+			Config: deploy.Config{
+				WorkDir:       filepath.Join(cfg.DataDir, "work"),
+				VolumesRoot:   envOr("CODEPLO_VOLUMES_DIR", filepath.Join(cfg.DataDir, "volumes")),
+				DockerDataDir: envOr("CODEPLO_DOCKER_DATA_DIR", "/var/lib/docker"),
+				AppArmor:      platform.AppArmorEnabled(),
+			},
+		})
+		srv.Deploy = eng
+		eng.Register(srv.Jobs) // handlers are a map the queue reads while running: register, then start
+		if err := eng.Recover(ctx); err != nil {
+			slog.Warn("deployment recovery incomplete; routes and containers may need reconciling", "err", err)
+		}
+	}
+	go srv.Jobs.Run(ctx)
 
 	if tok, issued, err := app.EnsureSetupToken(ctx, db); err != nil {
 		return err

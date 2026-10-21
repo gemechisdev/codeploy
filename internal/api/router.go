@@ -20,6 +20,7 @@ import (
 	"github.com/codeplo/codeplo/internal/events"
 	"github.com/codeplo/codeplo/internal/jobs"
 	"github.com/codeplo/codeplo/internal/modules"
+	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
@@ -48,12 +49,15 @@ type Server struct {
 	Terminals  *terminal.Store
 	Tickets    *terminal.Tickets // single-use WebSocket tickets, in memory
 	HostShells terminal.Spawner  // privileged PTY helper client; nil until wired
-	Started    time.Time
-	Version    string
-	Commit     string
-	BuiltAt    string
-	lim        *limiter
-	replay     *authn.ReplayGuard
+	// Deploy is the P4 deployment engine. Nil until the daemon wires the runtime and the job queue to it; the
+	// resource handlers then answer 500, because accepting a resource nothing can deploy would be a lie.
+	Deploy  *deploy.Engine
+	Started time.Time
+	Version string
+	Commit  string
+	BuiltAt string
+	lim     *limiter
+	replay  *authn.ReplayGuard
 }
 
 func New(db *sql.DB, key []byte, version, commit, built string) *Server {
@@ -65,6 +69,9 @@ func New(db *sql.DB, key []byte, version, commit, built string) *Server {
 func (s *Server) Routes() []RouteDef {
 	defs := append(append(s.coreRoutes(), s.hardeningRoutes()...), s.edgeRoutes()...)
 	defs = append(append(defs, s.terminalRoutes()...), s.logRoutes()...)
+	defs = append(defs, s.deployRoutes()...)
+	defs = append(defs, s.deploymentRoutes()...)
+	defs = append(defs, s.envRoutes()...)
 	implemented := map[string]bool{}
 	for _, d := range defs {
 		implemented[d.Method+" "+d.Path] = true
