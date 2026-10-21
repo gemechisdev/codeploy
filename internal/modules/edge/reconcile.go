@@ -50,7 +50,26 @@ type Reconciler struct {
 func iso(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
 
 func (r *Reconciler) sites(ctx context.Context) ([]Site, error) {
-	rows, err := r.DB.QueryContext(ctx, `SELECT hostname, kind, force_https, redirect_www, upstream FROM domains ORDER BY hostname`)
+	// A resource's upstream is derived from resources.active_deployment_id and nothing else (plan 3.8), so a
+	// deployment that never reached the switch step cannot move traffic. Two states are then distinguished, and
+	// getting them wrong has opposite costs:
+	//
+	//   - desired_state='stopped' means the operator stopped it. No route is correct: the alternative is a route
+	//     to a container that is deliberately not running.
+	//   - running with an empty lookup is a transient state (a pointer set by recovery, a deployment row that has
+	//     not recorded its address yet). Serving the last address domains.upstream holds -- written in the same
+	//     transaction as the pointer, and refreshed at boot when the container's address moved -- keeps a live
+	//     site up through the moment instead of 404ing it.
+	//
+	// Rows whose resource_id has no resources row (the pre-P4 shape, kept for fixtures) fall back to the stored upstream.
+	rows, err := r.DB.QueryContext(ctx, `SELECT d.hostname, d.kind, d.force_https, d.redirect_www,
+ CASE WHEN d.kind='panel' THEN d.upstream
+      WHEN NOT EXISTS (SELECT 1 FROM resources r WHERE r.id=d.resource_id) THEN d.upstream
+      WHEN NOT EXISTS (SELECT 1 FROM resources r WHERE r.id=d.resource_id AND r.desired_state='running') THEN ''
+      ELSE COALESCE(NULLIF((SELECT dep.upstream FROM resources r JOIN deployments dep ON dep.id=r.active_deployment_id
+                            WHERE r.id=d.resource_id), ''), d.upstream)
+ END
+ FROM domains d ORDER BY d.hostname`)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +83,7 @@ func (r *Reconciler) sites(ctx context.Context) ([]Site, error) {
 			return nil, err
 		}
 		s.Panel, s.ForceHTTPS, s.RedirectWWW = kind == "panel", f == 1, w == 1
-		// a resource domain without an upstream cannot be routed yet (P4 supplies upstreams)
+		// Empty after the derivation above means "stopped, or never successfully deployed": no route to render.
 		if !s.Panel && strings.TrimSpace(s.Upstream) == "" {
 			continue
 		}
