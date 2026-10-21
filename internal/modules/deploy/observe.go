@@ -44,7 +44,6 @@ func (r *run) observe(ctx context.Context) error {
 	if every < time.Second {
 		every = time.Second
 	}
-	url := "http://" + r.upstream + hc.Path
 	probeTimeout := time.Duration(hc.TimeoutS) * time.Second
 
 	if err := r.setStep(ctx, StObserving, "observe"); err != nil {
@@ -63,7 +62,7 @@ func (r *run) observe(ctx context.Context) error {
 	tailed := false
 	fails := 0
 	for {
-		ok, status, gone := r.check(ctx, url, probeTimeout, &tailed)
+		ok, status, gone := r.check(ctx, probeTimeout, &tailed)
 		if ctx.Err() != nil {
 			return r.stopObserving(ctx, ctx.Err())
 		}
@@ -91,9 +90,28 @@ func (r *run) observe(ctx context.Context) error {
 	}
 }
 
+// probe asks the new container whether it is serving, and says in one short phrase what it saw — the phrase is what
+// the deployment record and the UI show as the health result, so it has to be true for the kind of check run.
+//
+// A database is asked with a connection rather than a request: Postgres, MySQL and Redis answer their own protocols
+// on their port, which the panel does not speak, and an HTTP GET against one of them is a failed check forever.
+func (r *run) probe(ctx context.Context, timeout time.Duration) (string, error) {
+	if r.res.Type == "database" {
+		if err := r.e.cfg.ProbeTCP(ctx, r.upstream, timeout); err != nil {
+			return "", err
+		}
+		return "accepting connections", nil
+	}
+	url := "http://" + r.upstream + r.res.Cfg.Healthcheck.Path
+	if err := r.e.cfg.Probe(ctx, url, timeout); err != nil {
+		return "", err
+	}
+	return "200 OK", nil
+}
+
 // check is one observation: is the container still up, and does the health endpoint answer? `gone` means the
 // container has exited or vanished, which no failure threshold should wait for.
-func (r *run) check(ctx context.Context, url string, probeTimeout time.Duration, tailed *bool) (ok bool, status string, gone bool) {
+func (r *run) check(ctx context.Context, probeTimeout time.Duration, tailed *bool) (ok bool, status string, gone bool) {
 	e := r.e
 	st, err := e.rt.InspectContainer(ctx, r.newCID, r.network)
 	if err != nil {
@@ -109,10 +127,11 @@ func (r *run) check(ctx context.Context, url string, probeTimeout time.Duration,
 		}
 		return false, "the container " + r.exitReason(st), true
 	}
-	if err := e.cfg.Probe(ctx, url, probeTimeout); err != nil {
+	status, err = r.probe(ctx, probeTimeout)
+	if err != nil {
 		return false, err.Error(), false
 	}
-	return true, "200 OK", false
+	return true, status, false
 }
 
 // stopObserving handles a cancelled window. Cancellation cannot undo a switch, so a user cancel finalizes the

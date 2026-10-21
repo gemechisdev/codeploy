@@ -98,9 +98,15 @@ func (r *run) ensureVolumeDirs() error {
 
 func (r *run) prepare(ctx context.Context, _ context.CancelCauseFunc) error {
 	e := r.e
-	if r.res.Type != "app" {
-		return fail("preflight", "%s resources cannot be deployed yet: only app resources are supported in this build", r.res.Type)
+	switch r.res.Type {
+	case "app", "database":
+	default:
+		return fail("preflight", "%s resources cannot be deployed yet: only app and database resources are supported in this build", r.res.Type)
 	}
+	// A database is the second type this engine runs, and it is the same container work with three differences: it
+	// is observed by connecting to its port rather than asking a path (Postgres, MySQL and Redis answer their own
+	// protocols), it takes the stop_first rollout because two servers must never share one data directory, and it
+	// has no domain, so nothing routes to it and only the panel network can reach it.
 	env, err := LoadEnv(ctx, e.db, e.key, r.res.ID)
 	if err != nil {
 		return fail("preflight", "%v", err)
@@ -561,7 +567,6 @@ func (r *run) verify(ctx context.Context, _ context.CancelCauseFunc) error {
 	e := r.e
 	hc := r.res.Cfg.Healthcheck
 	_, _ = e.db.ExecContext(ctx, `UPDATE deployments SET health_max=?, health_done=0 WHERE id=?`, hc.Retries, r.id)
-	url := "http://" + r.upstream + hc.Path
 	for i := 0; i < hc.StartPeriodS; i++ {
 		st, err := e.rt.InspectContainer(ctx, r.newCID, r.network)
 		if err != nil {
@@ -585,8 +590,7 @@ func (r *run) verify(ctx context.Context, _ context.CancelCauseFunc) error {
 			r.tailLogs()
 			return fail("health", "The new container stopped before it became healthy: %s. The previous version is still serving.", r.exitReason(st))
 		}
-		perr := e.cfg.Probe(ctx, url, time.Duration(hc.TimeoutS)*time.Second)
-		status := "200 OK"
+		status, perr := r.probe(ctx, time.Duration(hc.TimeoutS)*time.Second)
 		if perr != nil {
 			status, last = perr.Error(), perr.Error()
 		}

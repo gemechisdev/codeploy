@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -43,8 +44,11 @@ type Config struct {
 	Disk         func(path string) (free, total uint64, err error)
 	MemAvailable func() (uint64, error)
 	Probe        func(ctx context.Context, url string, timeout time.Duration) error
-	Now          func() time.Time
-	Sleep        func(ctx context.Context, d time.Duration) error
+	// ProbeTCP answers the health of a resource that serves a port instead of a path — a database. `hostport` is
+	// the same container address the HTTP probe's URL is built from.
+	ProbeTCP func(ctx context.Context, hostport string, timeout time.Duration) error
+	Now      func() time.Time
+	Sleep    func(ctx context.Context, d time.Duration) error
 }
 
 // DefaultConfig fills every unset field. dataDir is the panel's data directory.
@@ -87,6 +91,9 @@ func (c Config) withDefaults(dataDir string) Config {
 	if c.Probe == nil {
 		c.Probe = httpProbe
 	}
+	if c.ProbeTCP == nil {
+		c.ProbeTCP = tcpProbe
+	}
 	if c.Now == nil {
 		c.Now = time.Now
 	}
@@ -122,6 +129,22 @@ func httpProbe(ctx context.Context, url string, timeout time.Duration) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
+	return nil
+}
+
+// tcpProbe is the health check of a resource that serves a port rather than a path. Postgres, MySQL and Redis answer
+// their own protocols, which the panel does not speak, so accepting a connection is what "this container is serving"
+// means for them. The databases module has the protocol-side health (it runs the engine's own client tools); the
+// engine only needs to know whether anything is listening.
+func tcpProbe(ctx context.Context, hostport string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var d net.Dialer
+	c, err := d.DialContext(ctx, "tcp", hostport)
+	if err != nil {
+		return fmt.Errorf("%s is not accepting connections: %w", hostport, err)
+	}
+	_ = c.Close()
 	return nil
 }
 
