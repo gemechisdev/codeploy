@@ -91,3 +91,20 @@ func DecidePullRequest(event string, src Source, p PullRequest) (PullRequestActi
 	}
 	return PRBuild, ""
 }
+
+// PullRequestNote is the sentence a teardown records: which of the two actions arrived, and whether the branch
+// landed. It belongs next to the gate because the three cases are what an operator reads in the audit log months
+// later to tell a merged pull request from an abandoned one — the preview row is gone by then either way, and this
+// is the only thing that says why.
+func PullRequestNote(p PullRequest) string {
+	switch p.Action {
+	case prActionDraft:
+		return "The pull request was converted to a draft"
+	case prActionClosed:
+		if p.Merged {
+			return "The pull request was merged"
+		}
+		return "The pull request was closed"
+	}
+	return "The pull request no longer wants a preview"
+}

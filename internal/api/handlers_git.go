@@ -16,6 +16,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/git/providers"
+	"github.com/codeplo/codeplo/internal/modules/previews"
 )
 
 // maxWebhookBody bounds a webhook payload. GitHub push events are under 25 KiB in practice; the cap is what stops
@@ -394,11 +395,19 @@ func readSignedBody(w http.ResponseWriter, r *http.Request) (raw []byte, payload
 //
 // When several resources share one repository the lowest id wins, which is the delivery table's constraint: a
 // delivery row carries a single resource, so this endpoint deploys at most one service per push.
+//
+// Preview resources are excluded rather than left to that order. A preview shares its parent's repository URL and its
+// source row, so it is a candidate for every push to that repository, and it would only ever lose by the accident
+// that its id was minted later — and a preview that deployed off a push to the base branch would be building the
+// wrong commit under the wrong name. Its head ref is what it builds, and only a pull_request delivery says which one.
 func (s *Server) findSourceByRepo(ctx context.Context, g *git.Service, repo string) (string, git.Source, bool, error) {
 	if repo == "" {
 		return "", git.Source{}, false, nil
 	}
-	rows, err := g.DB.QueryContext(ctx, `SELECT resource_id, repo_url FROM resource_sources WHERE repo_url IS NOT NULL AND repo_url<>'' ORDER BY resource_id`)
+	rows, err := g.DB.QueryContext(ctx, `SELECT resource_id, repo_url FROM resource_sources
+		WHERE repo_url IS NOT NULL AND repo_url<>''
+		  AND resource_id NOT IN (SELECT preview_resource_id FROM pr_previews)
+		ORDER BY resource_id`)
 	if err != nil {
 		return "", git.Source{}, false, err
 	}
@@ -499,6 +508,14 @@ func (s *Server) receiveGithub(w http.ResponseWriter, r *http.Request) {
 		invalid(w, map[string]string{"X-GitHub-Delivery": "Missing delivery id"})
 		return
 	}
+	// A pull request delivery is not a push: it asks for an environment to review a branch in, not for the deployed
+	// service to change. Everything above it is shared because all of it is what makes the post trustworthy — the
+	// signature over the exact bytes, the repository resolving to a configured resource, a delivery id worth
+	// deduping — and only the action differs.
+	if event == "pull_request" {
+		s.receivePreview(w, r, g, rid, src, event, deliveryID, payload)
+		return
+	}
 
 	reason := git.EvaluatePush(event, src, p)
 	if reason == "" {
@@ -546,14 +563,7 @@ func (s *Server) receiveGithub(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 	if errors.Is(txErr, errReplay) {
-		replay := "Delivery ID already seen (replay)"
-		dup := git.Delivery{Provider: "github", DeliveryID: deliveryID + "#replay" + crypto.RandomHex(2),
-			Event: event, Result: "rejected", Reason: &replay, ResourceID: &rid}
-		if _, err := g.RecordDelivery(r.Context(), g.DB, dup); err != nil {
-			internalErr(w, err)
-			return
-		}
-		writeErr(w, 409, "conflict", "Delivery already processed", nil)
+		s.deliveryReplay(w, r, g, event, rid, deliveryID)
 		return
 	}
 	if txErr != nil {
@@ -563,6 +573,114 @@ func (s *Server) receiveGithub(w http.ResponseWriter, r *http.Request) {
 	if reason == "" {
 		s.Bus.Publish("resource.updated", map[string]any{"resource_id": rid})
 		s.Bus.Publish("deployment.updated", map[string]any{"deployment_id": depID, "resource_id": rid})
+	}
+	writeJSON(w, 202, map[string]any{"delivery_id": deliveryID, "result": result})
+}
+
+// deliveryReplay is the answer to a second post of a delivery id this panel has already worked: a row saying so under
+// a fresh id — the unique constraint is on the caller's id, and a replay has to be visible in the history rather than
+// silently absent — and a 409, which tells GitHub the delivery is done with.
+func (s *Server) deliveryReplay(w http.ResponseWriter, r *http.Request, g *git.Service, event, rid, deliveryID string) {
+	replay := "Delivery ID already seen (replay)"
+	dup := git.Delivery{Provider: "github", DeliveryID: deliveryID + "#replay" + crypto.RandomHex(2),
+		Event: event, Result: "rejected", Reason: &replay, ResourceID: &rid}
+	if _, err := g.RecordDelivery(r.Context(), g.DB, dup); err != nil {
+		internalErr(w, err)
+		return
+	}
+	writeErr(w, 409, "conflict", "Delivery already processed", nil)
+}
+
+// receivePreview acts on one authenticated pull_request delivery: it builds or refreshes the preview the request asks
+// for, takes one down when the request stops asking, and records which of those happened.
+//
+// The delivery row is the transaction's last statement rather than its first, which is the one difference from the
+// push path. There the reason is known before anything is written, so the row can be claimed up front; here the
+// answer is what the preview service decides — whether a hostname was free, whether the parent is previewable,
+// whether one was running at all — and a row that said "success" about a refusal would be the silence this endpoint
+// exists to avoid. Claiming last costs nothing on that rule: SQLite takes the write lock at BEGIN, so a second post
+// of the same id waits for the first to commit, then fails on the unique index and unwinds the preview work it had
+// done along with everything else in its transaction.
+func (s *Server) receivePreview(w http.ResponseWriter, r *http.Request, g *git.Service, rid string,
+	src git.Source, event, deliveryID string, payload map[string]any) {
+	pr, refusal := providers.ParsePullRequest(payload)
+	action, reason := git.PRIgnore, refusal
+	if refusal == "" {
+		action, reason = git.DecidePullRequest(event, src, pr)
+	}
+	if action != git.PRIgnore && s.Preview == nil {
+		action, reason = git.PRIgnore, "Preview environments are not available on this daemon"
+	}
+	result := "ignored"
+	if reason == "" {
+		result = "success"
+	}
+	row := git.Delivery{Provider: "github", DeliveryID: deliveryID, Event: event, Result: result, ResourceID: &rid}
+	if reason != "" {
+		row.Reason = &reason
+	}
+	if len(pr.HeadSHA) >= 7 {
+		// The short form, exactly like a push delivery records it: the history is read by eye, and the full sha is
+		// on the preview row for anyone who needs the commit itself.
+		sha := pr.HeadSHA[:7]
+		row.CommitSHA = &sha
+	}
+
+	previewed := "" // the preview's own resource, new or refreshed or just taken down
+	txErr := s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
+		switch action {
+		case git.PRBuild:
+			prev, why, err := s.Preview.Build(r.Context(), tx, previews.Request{ParentResourceID: rid, PR: pr})
+			if err != nil {
+				return audit.Event{}, err
+			}
+			if why != "" {
+				// A refusal is reached before the service writes anything, so the row can say so truthfully and the
+				// transaction still has nothing in it but the claim.
+				reason, result = why, "ignored"
+				row.Reason, row.Result = &reason, result
+				break
+			}
+			previewed = prev.ResourceID
+		case git.PRTeardown:
+			prev, found, err := s.Preview.Close(r.Context(), tx, rid, pr.Number, git.PullRequestNote(pr))
+			if err != nil {
+				return audit.Event{}, err
+			}
+			if !found {
+				// The ordinary case of a closed draft, a fork, or a request against another branch: every one of
+				// those was refused at the gate and GitHub sends a closed delivery for it anyway. There is nothing to
+				// take down, which is what the requester wanted, so it is recorded and answered with 202.
+				reason, result = "No preview of this pull request is running here", "ignored"
+				row.Reason, row.Result = &reason, result
+				break
+			}
+			previewed = prev.ResourceID
+		}
+		claimed, err := g.ClaimDelivery(r.Context(), tx, row)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		if !claimed {
+			return audit.Event{}, errReplay
+		}
+		return audit.Event{}, nil
+	})
+	if errors.Is(txErr, errReplay) {
+		s.deliveryReplay(w, r, g, event, rid, deliveryID)
+		return
+	}
+	if txErr != nil {
+		internalErr(w, txErr)
+		return
+	}
+	if previewed != "" {
+		// The preview is an ordinary resource with an ordinary route: the panel's lists refresh on its id, and the
+		// edge is told because a hostname was added or taken away — on a refresh too, because a preview that failed
+		// to get its certificate the first time is re-issued by the same reconcile.
+		s.Bus.Publish("resource.updated", map[string]any{"resource_id": previewed})
+		s.Bus.Publish("edge.changed", map[string]any{})
+		s.reconcileAfter()
 	}
 	writeJSON(w, 202, map[string]any{"delivery_id": deliveryID, "result": result})
 }

@@ -172,3 +172,32 @@ func resourceExists(ctx context.Context, q git.Querier, id string) (bool, error)
 	}
 	return true, nil
 }
+
+// slugTaken and hostnameTaken are the build's occupancy questions, asked before anything is written so that a
+// refusal leaves the transaction empty. Both names are UNIQUE for ordinary reasons — two services cannot share a
+// slug, two routes cannot share a hostname — and an operator who made a service called `<app>-pr-7` is answering
+// one of them, which is a sentence rather than a constraint error.
+
+func slugTaken(ctx context.Context, q git.Querier, slug string) (bool, error) {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM resources WHERE slug=?`, slug).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func hostnameTaken(ctx context.Context, q git.Querier, hostname string) (bool, error) {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM domains WHERE hostname=?`, hostname).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}

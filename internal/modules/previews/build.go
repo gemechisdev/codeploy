@@ -32,6 +32,11 @@ type parent struct {
 // deployment. It returns a refusal reason when the preview cannot be made (which the caller records against the
 // delivery and answers with 200), and an error only when the database said no to work it had accepted.
 //
+// The two are kept strictly apart: every refusal is reached before this function writes anything, so a caller that
+// answers 200-and-recorded is never committing a half-built resource that no row describes and no sweep can see.
+// What is left to the unique indexes — a slug or hostname taken between the check and the insert — comes back as an
+// error, which unwinds the caller's transaction along with the eviction it had already done.
+//
 // The work runs in the caller's transaction because the caller is the webhook receiver, and the rule there is that
 // a delivery id is claimed in the same transaction as the thing it triggers: a preview that exists without its
 // delivery row would be built again by GitHub's next retry, and a claimed delivery that triggered nothing is the
@@ -74,6 +79,23 @@ func (s *Service) Build(ctx context.Context, tx *sql.Tx, req Request) (Preview, 
 		return Preview{}, "", err
 	}
 	if found {
+		// The preview row says a workload exists, and the resources row is the only proof that it does. An operator
+		// who deleted the preview from its own page left this row holding the hostname and the slug the next build
+		// needs, and its delete already queued the reap that stopped the containers — so the stale row is dropped and
+		// a fresh preview is built below, rather than queueing a deployment for a resource that is not there. The
+		// volume directory is deliberately left alone: this delivery is about to make a preview that mounts it.
+		live, err := resourceExists(ctx, tx, cur.ResourceID)
+		if err != nil {
+			return Preview{}, "", err
+		}
+		if !live {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM pr_previews WHERE id=?`, cur.ID); err != nil {
+				return Preview{}, "", err
+			}
+			found = false
+		}
+	}
+	if found {
 		// The head moved, so the record of what is being previewed moves with it — and activity is what keeps a
 		// preview alive, which is the difference between a branch someone is working on and one they abandoned.
 		if _, err := tx.ExecContext(ctx, `UPDATE pr_previews SET head_ref=?, head_sha=?, updated_at=?, expires_at=? WHERE id=?`,
@@ -93,6 +115,21 @@ func (s *Service) Build(ctx context.Context, tx *sql.Tx, req Request) (Preview, 
 		}
 		cur.HeadRef, cur.HeadSHA, cur.ExpiresAt, cur.UpdatedAt = req.PR.HeadRef, req.PR.HeadSHA, s.ts(expires), s.ts(now)
 		return cur, "", nil
+	}
+
+	// Occupancy is asked about before anything is written, because a refusal has to mean nothing happened: the caller
+	// records the reason against the delivery and answers 200, and a transaction that had already inserted a resource
+	// row would commit a stopped workload no row describes and no sweep can see. The two unique indexes stay the last
+	// word for a race — there the insert's error unwinds the transaction instead of a refusal being returned from it.
+	if taken, err := slugTaken(ctx, tx, slug); err != nil {
+		return Preview{}, "", err
+	} else if taken {
+		return Preview{}, "A service named " + strconv.Quote(slug) + " already exists", nil
+	}
+	if taken, err := hostnameTaken(ctx, tx, hostname); err != nil {
+		return Preview{}, "", err
+	} else if taken {
+		return Preview{}, "The hostname " + strconv.Quote(hostname) + " is already routed to another resource", nil
 	}
 
 	// The cap is per service, because what grows without a cap is one busy repository opening a pull request an
@@ -135,9 +172,6 @@ func (s *Service) Build(ctx context.Context, tx *sql.Tx, req Request) (Preview, 
 	id := s.id("res_")
 	if _, err := tx.ExecContext(ctx, `INSERT INTO resources(id,environment_id,type,name,slug,config_json,desired_state,created_at) VALUES (?,?,?,?,?,?,?,?)`,
 		id, p.envID, "app", slug, slug, string(cfgJSON), "stopped", s.ts(now)); err != nil {
-		if isUniqueErr(err) {
-			return Preview{}, "A service named " + strconv.Quote(slug) + " already exists", nil
-		}
 		return Preview{}, "", err
 	}
 	// The preview's source is the parent's repository at the pull request's head. The parent's path filters are
@@ -149,9 +183,6 @@ func (s *Service) Build(ctx context.Context, tx *sql.Tx, req Request) (Preview, 
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(id,hostname,resource_id,kind,force_https,redirect_www,upstream,cert_status,issuer,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		s.id("dom_"), hostname, id, "resource", 1, 0, "", "issuing", "", s.ts(now)); err != nil {
-		if isUniqueErr(err) {
-			return Preview{}, "The hostname " + strconv.Quote(hostname) + " is already routed to another resource", nil
-		}
 		return Preview{}, "", err
 	}
 	if err := copyEnv(ctx, tx, s, p.id, id, now); err != nil {
@@ -174,11 +205,9 @@ func (s *Service) Build(ctx context.Context, tx *sql.Tx, req Request) (Preview, 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO pr_previews(id,provider,parent_resource_id,preview_resource_id,number,head_ref,head_sha,hostname,created_at,updated_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		prev.ID, "github", prev.ParentResourceID, prev.ResourceID, prev.Number, prev.HeadRef, prev.HeadSHA, prev.Hostname,
 		prev.CreatedAt, prev.UpdatedAt, prev.ExpiresAt); err != nil {
-		if isUniqueErr(err) {
-			// Two deliveries for one pull request raced, and the loser says so instead of building a second
-			// preview of the same number.
-			return Preview{}, "A preview of this pull request already exists", nil
-		}
+		// Reaching a unique index here means two deliveries for one pull request raced, and the loser's error is the
+		// honest answer: the transaction unwinds — its resource row, its domain and its queued deployment with it —
+		// and GitHub's retry of the same delivery finds the preview that won and refreshes it.
 		return Preview{}, "", err
 	}
 	depID, err := s.eng.Create(ctx, tx, s.queue, deploy.NewDeployment{
@@ -354,8 +383,4 @@ func copyCredentials(ctx context.Context, tx *sql.Tx, s *Service, from, to strin
 		}
 	}
 	return nil
-}
-
-func isUniqueErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

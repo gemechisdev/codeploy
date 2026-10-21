@@ -27,6 +27,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/git/providers"
 	"github.com/codeplo/codeplo/internal/modules/monitor"
 	"github.com/codeplo/codeplo/internal/modules/notify"
+	"github.com/codeplo/codeplo/internal/modules/previews"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/templates"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
@@ -76,12 +77,16 @@ type Server struct {
 	// so a delivery for a resource that has no webhook of its own still has to be checkable. The App's private key
 	// is never used here — the clone path takes its tokens from the engine, which holds the same pointer.
 	GitHubApp *providers.GitHubApp
-	Started   time.Time
-	Version   string
-	Commit    string
-	BuiltAt   string
-	lim       *limiter
-	replay    *authn.ReplayGuard
+	// Preview is the P7 pull-request preview service. It is wired by the daemon when the deployment engine and the
+	// job queue are both present, and it needs CODEPLO_PREVIEW_DOMAIN to build anything; the webhook receiver acts
+	// on a pull_request delivery through it, and a build without it records the refusal it would have got anyway.
+	Preview *previews.Service
+	Started time.Time
+	Version string
+	Commit  string
+	BuiltAt string
+	lim     *limiter
+	replay  *authn.ReplayGuard
 }
 
 func New(db *sql.DB, key []byte, version, commit, built string) *Server {

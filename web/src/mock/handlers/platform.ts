@@ -297,6 +297,35 @@ export function registerPlatform() {
       throw conflict('Delivery already processed');
     }
     const src = db.sources.get(target!.id)!;
+    // A pull request asks for a preview environment; it never changes the deployed service, and nothing here starts a
+    // deployment. Every sentence below is the one the daemon's own gate produces, in its order, with one
+    // simplification stated out loud: the mock reads GitHub's `fork` flag instead of canonicalising head against base,
+    // and it has no preview engine or preview domain, so a request the gate accepts is refused where a panel without
+    // CODEPLO_PREVIEW_DOMAIN is refused.
+    if (event === 'pull_request') {
+      const pr = (c.body?.pull_request ?? null) as Record<string, any> | null;
+      const action = String(c.body?.action ?? '');
+      const baseRef = String(pr?.base?.ref ?? '');
+      const configured = String(src.branch ?? '');
+      const sha = String(pr?.head?.sha ?? '').slice(0, 7) || null;
+      const teardown = action === 'closed' || action === 'converted_to_draft';
+      let why = '';
+      if (!pr) why = 'The delivery has no pull request object';
+      else if (!(Number(pr.number ?? 0) > 0)) why = 'The delivery carries no pull request number';
+      else if (teardown) why = 'No preview of this pull request is running here';
+      else if (!['opened', 'reopened', 'ready_for_review', 'synchronize'].includes(action)) why = `Action "${action}" does not change the branch`;
+      else if (!String(pr.head?.ref ?? '') || !String(pr.head?.sha ?? '')) why = 'The delivery names no branch and commit this panel could clone';
+      else if (baseRef !== configured) why = `The pull request targets "${baseRef}", not the configured branch "${configured}"`;
+      else if (pr.head?.repo?.fork) why = "The head branch is in a fork, and a preview would run unreviewed code with this service's credentials";
+      else if (!pr.head?.repo) why = 'The head repository is gone, so there is nothing to clone';
+      else if (pr.draft) why = 'The pull request is a draft';
+      else if (/\[skip deploy\]/i.test(String(pr.title ?? ''))) why = 'Pull request title contains [skip deploy]';
+      else why = db.flags.find((f) => f.key === 'git.preview_deploys')?.enabled
+        ? 'No preview base domain is configured (set CODEPLO_PREVIEW_DOMAIN)'
+        : 'Preview environments are disabled (feature flag git.preview_deploys)';
+      const row = delivery(db, { event, delivery_id: did, result: 'ignored', reason: why, commit_sha: sha, resource_id: target!.id });
+      return { status: 202, body: { delivery_id: row.delivery_id, result: row.result } };
+    }
     const branch = String(c.body?.ref ?? '').replace('refs/heads/', '');
     const sha = String(c.body?.after ?? '').slice(0, 7) || null;
     const msg = String(c.body?.head_commit?.message ?? '');

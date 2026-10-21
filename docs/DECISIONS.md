@@ -830,3 +830,19 @@ and a preview container holding the parent's database password that keeps runnin
 exist is the difference between a switch and a suggestion. So the reconciliation pass is unconditional, and it
 reports "Preview environments are disabled" as its reason — which is also why turning the base domain off or away
 does not stop it either: a hostname that no longer resolves still describes a workload with real credentials in it.
+
+**A preview refusal means nothing was written, and the delivery row is claimed last because of it.** The push
+receiver claims its delivery row first, because the reason it may record is known before it does anything; the
+preview receiver cannot know its reason until the preview service has answered, and a row that recorded `success` for
+a refused build is exactly the silence this endpoint is not allowed to produce. So the row is the transaction's last
+statement, and the service's rule is what makes that safe: `Build` decides every refusal — the parent, its type, its
+image mode, the slug, the hostname — before it inserts, and what is left to a unique index is returned as an error
+that unwinds the eviction it had already done. The alternative was letting a refusal arrive after an insert, which
+commits a stopped resource with no preview row, no deployment and nothing in the sweep that can see it.
+
+**A preview never answers a push.** A preview resource carries the same repository URL as its parent, and the webhook
+receiver resolves a delivery to the lowest resource id that matches — so a preview would only lose every push to that
+repository by the accident that its id was minted later. Accidents are not a rule, and the failure when it breaks is
+subtle: a preview built from the base branch, deployed under a name that says it is a pull request. The resolution
+query now excludes resources that a preview row claims, and a preview's head ref only ever arrives through a
+`pull_request` delivery, which is the only thing that knows which branch it is supposed to be.
