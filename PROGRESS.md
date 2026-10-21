@@ -335,11 +335,14 @@ invented route that would break the stub generator, the authorization matrix and
 
 Same instruction as Phases 4, 5 and 6: development only. The gates that ran for every unit below are
 `gofmt -l internal cmd templates` (empty), `go build ./internal/... ./cmd/... ./templates/...` and `go vet` over the
-whole module (all clean). **No Phase 7 test has been executed and none is claimed to pass.** The only thing run
-beyond the gates was `codeplo templates check` against a scratch directory: the five bundled files list with their
-policy notes, and two deliberately broken ones are refused with the reasons the parser gives — a `# slogan:` file
-whose only variable is `${SERVICE_FQDN}`, and a `${CODEPLO_URL}` written in a label instead of the environment. That
-is a look at the parser's output, not a test of it.
+whole module (all clean). **No Phase 7 test has been executed and none is claimed to pass.** The only things run
+beyond the gates were looks at output, not tests: `codeplo templates check` against a scratch directory listed the
+five bundled files with their policy notes and refused two deliberately broken ones with the reasons the parser
+gives — a `# slogan:` file whose only variable is `${SERVICE_FQDN}`, and a `${CODEPLO_URL}` written in a label
+instead of the environment — and `codeplo github-app check` printed each configuration error (no App, a
+non-numeric app id, a value that is not a PEM block) and then, with a generated 2048-bit PKCS#8 key and the API
+base pointed at a dead local port, signed a JWT, attempted the exchange and reported the connection failure with
+GitHub's own request path in it.
 
 | Area | Files | What it does |
 |---|---|---|
@@ -353,6 +356,11 @@ is a look at the parser's output, not a test of it.
 | Shared creation core | `internal/api/handlers_resources.go` | The insert half of `POST /resources` became `insertResource(w, r, engine, *resourceDraft)`: resource row, source row, first domain, the template's volumes and its sealed variables, `resource.created`, and the queued first deployment with its read-back snapshot — **one transaction**, because a database that comes up without its password is a broken workload nobody can repair from the panel. `POST /resources` and the template route now cannot diverge, and both keep the volume directories being prepared before the insert rather than at deploy time |
 | Database observation | `internal/modules/deploy/engine.go`, `observe.go`, `steps.go` | The engine asks a question that fits the resource: `run.probe` takes the port (`Config.ProbeTCP`, default `tcpProbe`) for a `database` and the health path for everything else, and returns the phrase the deployment record shows, so a Postgres no longer reads as "200 OK" it never sent. `prepare` now admits `database` alongside `app` — it was the P4 gate that would have failed every template database at preflight with "only app resources are supported" — and the three differences a database has are written down there: observed by connection, rolled out stop-first, and never routed to |
 | `codeplo templates` | `cmd/codeplo/templates.go` | `list [--json]` and `check`. `check` prints the deployable catalog, each template's policy notes, and a reason for every file the panel refused — the one thing the API cannot show — and exits non-zero when anything was refused, so it is usable from a CI job that imports templates. It takes its own flags and is dispatched before the shared CLI flag set, the way `cron` is |
+| App configuration | `internal/config/githubapp.go` | `CODEPLO_GITHUB_APP_ID`, `..._INSTALLATION_ID`, `..._PRIVATE_KEY_FILE` or `..._PRIVATE_KEY`, the optional `..._API_URL` for GitHub Enterprise Server, and `..._WEBHOOK_SECRET` — all environment, like the S3 destination, because the key GitHub hands out when an App is created must not be writable by a route after boot. Half an App is a boot failure rather than an absence: an operator who installed it and forgot the key believes their private repositories are cloneable, and the alternative is a build that dies on an authentication error that reads as a permissions problem in the repository |
+| GitHub App provider | `internal/modules/git/providers/githubapp.go` | The App's whole outbound half, with no dependency added for it: an RS256 JWT (`iss` = app id, `iat` a minute into the past because GitHub rejects a future one and clocks are a few seconds off) exchanged at `/applications/{installation}/access_tokens`, the token cached in memory until two minutes before GitHub's own expiry, and `/installation/repositories` read through the same client and cached ten minutes. A token in the database would be a credential any reader of the panel could take, so nothing here outlives the process and a restart costs one call. Both PEM containers GitHub produces parse (PKCS#1 and PKCS#8); an encrypted or non-RSA one is refused with what to do about it, as is an API base that is not a bare `https` origin — an App token travels in a plaintext header otherwise. The two statuses only GitHub's own UI can fix (401 = the key belongs to a different app id, 404 = that is not an installation id) come back as sentences saying so, and the response body is never echoed |
+| Clone credential | `internal/modules/deploy/engine.go`, `steps.go` | `Deps.GitHubToken` is the engine's port — `(ctx, repoURL) → (token, used, err)` — consulted only for a source with **no deploy key and no stored token**, so an App installation can never quietly take over a repository the operator gave their own credential to. A repository on another forge is answered offline, without a GitHub call, and left to clone as it always did; one the installation covers clones as `x-access-token`, which the builder's existing askpass script already supplies as the username. The minted token joins the log redactor like any other credential, and the clone's log line now names which of the three it used, because "cloning X (main)" answers nothing when the auth fails an hour later |
+| App deliveries | `internal/api/router.go`, `handlers_git.go` | One installed App posts every repository's events to this one URL signed with one secret, so `/webhooks/github` tries the App's secret **after** the named resource's own — over the same exact bytes, with the same HMAC rule, and only once the payload has resolved to a configured resource. A panel without `CODEPLO_GITHUB_APP_WEBHOOK_SECRET` behaves exactly as it did before this existed |
+| `codeplo github-app` | `cmd/codeplo/githubapp.go` | `check [--repo URL]` and `repos [--json]` — the repository picker's data, and the answer to "do these ids and this key actually work" without waiting for a build to find out. `check` prints the identity, the key's size, the webhook-secret state, then mints: it reports the token's **length and expiry and never its value**, because a credential in a terminal transcript is a credential in a shell history and a support ticket. `--repo` says whether the App would clone a given URL and exits non-zero if it would not, so the question is askable from CI. Neither sub-command opens the data directory |
 
 ## Next
 
@@ -362,9 +370,12 @@ databases, backups and the restore wizard) and its test pass — including the f
 
 **P7 — Extensibility** has its catalog end to end: a template file is parsed, judged by the isolation policy, listed,
 and deployed into a resource with its volumes and its generated credentials, and the databases it ships are now
-observable and deployable by the engine. What the catalog still owes is its frontend pass (live mode against these
-two routes) and the P7 test pass. Next in the phase is the GitHub App provider (G5), commit status (G7), PR previews
-(G8), extensions (J4) and the MCP module (J7).
+observable and deployable by the engine. Its GitHub App (G5) is wired too: the App mints installation tokens, the
+engine clones private repositories with them when the resource carries no credential of its own, the webhook
+receiver can verify a delivery an App signed for a repository the panel never configured, and `codeplo github-app`
+answers the two questions that have no route. What the catalog still owes is its frontend pass (live mode against
+the two template routes) and the P7 test pass. Next in the phase is commit status (G7) — which reuses this
+provider's client — then PR previews (G8), extensions (J4) and the MCP module (J7).
 
 One thing the catalog cannot do yet and says so out loud: `${CODEPLO_URL}` and Coolify's `${SERVICE_FQDN}` are
 refused at parse time, because a template deploy has no address to hand over. Pull-request previews (G8) need a base

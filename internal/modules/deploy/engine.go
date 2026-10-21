@@ -162,8 +162,15 @@ type Deps struct {
 	// because an optional module is switched off would be a worse failure than one without the safety net.
 	// It returns whether a snapshot was taken, so the log says which of the two happened.
 	PreDeploy func(ctx context.Context, resourceID string) (bool, error)
-	DataDir   string
-	Config    Config
+	// GitHubToken mints a short-lived clone credential for a repository the panel's GitHub App installation covers,
+	// and says whether this App is the thing that should be covering it. nil when the daemon was started without
+	// CODEPLO_GITHUB_APP_*, which leaves every source authenticating with what the resource itself carries.
+	//
+	// It is consulted only for a source with no deploy key and no stored token, so an App installation can never
+	// quietly take over a repository the operator gave their own credential to.
+	GitHubToken func(ctx context.Context, repoURL string) (string, bool, error)
+	DataDir     string
+	Config      Config
 }
 
 // Engine runs deployments. One Engine per daemon; the queue's single worker gives build concurrency = 1.
@@ -176,7 +183,9 @@ type Engine struct {
 	pub func(string, any)
 	// preDeploy is Deps.PreDeploy; see the note there for what nil means.
 	preDeploy func(context.Context, string) (bool, error)
-	cfg       Config
+	// ghToken is Deps.GitHubToken; nil means no GitHub App is configured on this daemon.
+	ghToken func(context.Context, string) (string, bool, error)
+	cfg     Config
 	// rawSteps keeps the timeouts the caller set explicitly. withDefaults fills every zero value, so without it
 	// the engine could not tell "the tests asked for this bound" from "nobody asked" and would ignore settings.
 	rawSteps StepTimeouts
@@ -191,7 +200,8 @@ func New(d Deps) *Engine {
 		pub = func(string, any) {}
 	}
 	return &Engine{db: d.DB, key: d.Key, rt: d.Runtime, b: d.Builder, edg: d.Edge, pub: pub,
-		preDeploy: d.PreDeploy, cfg: d.Config.withDefaults(d.DataDir), rawSteps: d.Config.Steps, running: map[string]context.CancelCauseFunc{}}
+		preDeploy: d.PreDeploy, ghToken: d.GitHubToken, cfg: d.Config.withDefaults(d.DataDir), rawSteps: d.Config.Steps,
+		running: map[string]context.CancelCauseFunc{}}
 }
 
 // timeouts resolves the per-step bounds: an explicit Config value wins, otherwise the seeded setting does, so an

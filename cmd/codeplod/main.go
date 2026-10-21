@@ -21,6 +21,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/deploy/builders"
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/git"
+	"github.com/codeplo/codeplo/internal/modules/git/providers"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/modules/templates"
 	"github.com/codeplo/codeplo/internal/modules/terminal"
@@ -105,6 +106,31 @@ func run() error {
 		srv.Git = git.New(db, key)
 	}
 
+	// The GitHub App is a daemon-level credential like the S3 destination rather than a database row: the private
+	// key is the file GitHub handed out when the App was created, and a route that could write one after boot would
+	// be a way in for anyone with panel:admin. Two things read it -- the engine's clone step, and the webhook
+	// receiver, which has to be able to check a delivery the App signed for a repository the panel was never told
+	// about. A key that will not parse stops the boot: an App nothing can authenticate as is worse than no App,
+	// because every private source then fails inside a build with a git error that names none of this.
+	ghCfg, ghSet, err := config.LoadGitHubApp()
+	if err != nil {
+		return err
+	}
+	// ghToken is the engine's port: nil when there is no App, in which case a clone uses only what its resource
+	// carries, exactly as it did before the App existed.
+	var ghToken func(context.Context, string) (string, bool, error)
+	if ghSet {
+		ghApp, err := providers.NewGitHubApp(ghCfg.AppID, ghCfg.InstallationID, ghCfg.KeyPEM, ghCfg.APIURL)
+		if err != nil {
+			return err
+		}
+		ghApp.WebhookSecret = ghCfg.WebhookSecret
+		srv.GitHubApp = ghApp
+		ghToken = ghApp.TokenFor
+		slog.Info("github app configured", "app_id", ghApp.AppID, "installation_id", ghApp.InstallationID,
+			"api", ghApp.APIURL, "clone_host", ghApp.CloneHost(), "webhook_secret", len(ghApp.WebhookSecret) > 0)
+	}
+
 	// Template catalog: the embedded bundle plus the operator's drop-in directory. The bundled files are read from
 	// the binary, so wiring it cannot fail; a file that does not parse is logged here, which is where an operator
 	// who has just dropped one in is looking before they try the panel.
@@ -138,7 +164,10 @@ func run() error {
 			// The pre-deploy snapshot is the databases module's, and nil when that module is off -- the engine's
 			// backup step then logs that no snapshot was possible and continues.
 			PreDeploy: ops.PreDeploy,
-			DataDir:   cfg.DataDir,
+			// The App's installation token is the clone credential for a GitHub repository that carries none of its
+			// own; nil when the daemon was started without one.
+			GitHubToken: ghToken,
+			DataDir:     cfg.DataDir,
 			Config: deploy.Config{
 				WorkDir:       filepath.Join(cfg.DataDir, "work"),
 				VolumesRoot:   envOr("CODEPLO_VOLUMES_DIR", filepath.Join(cfg.DataDir, "volumes")),

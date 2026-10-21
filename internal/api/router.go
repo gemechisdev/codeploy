@@ -24,6 +24,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/edge"
 	"github.com/codeplo/codeplo/internal/modules/git"
+	"github.com/codeplo/codeplo/internal/modules/git/providers"
 	"github.com/codeplo/codeplo/internal/modules/monitor"
 	"github.com/codeplo/codeplo/internal/modules/notify"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
@@ -70,6 +71,11 @@ type Server struct {
 	// Templates is the P7 catalog. Listing it reads files only; deploying one seals the credentials it generates,
 	// so the service carries the database and the master key. Nil means a build without the module.
 	Templates *templates.Service
+	// GitHubApp is the P7 App identity, wired by the daemon only when CODEPLO_GITHUB_APP_* names one. The API needs
+	// it for one thing: an installed App posts every repository's events to this one URL signed with one secret,
+	// so a delivery for a resource that has no webhook of its own still has to be checkable. The App's private key
+	// is never used here — the clone path takes its tokens from the engine, which holds the same pointer.
+	GitHubApp *providers.GitHubApp
 	Started   time.Time
 	Version   string
 	Commit    string

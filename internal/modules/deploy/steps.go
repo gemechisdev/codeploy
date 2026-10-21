@@ -311,18 +311,36 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 	// limit an operator raises actually reaches the step that needs it.
 	limits := git.ReadCloneLimits(ctx, e.db)
 	gs := builders.GitSource{URL: src.RepoURL, Branch: branch, MaxBytes: limits.MaxBytes}
+	// by names, for the log line, which credential this clone is about to use: "cloning X (main)" tells an
+	// operator nothing when the clone fails on authentication an hour from now.
+	by := ""
 	if src.Kind == "deploy_key_git" {
 		k := credential(ctx, e.db, e.key, r.res.ID, "deploy_key")
 		if k == nil {
 			return "", fail("build", "This resource uses a deploy key but none is stored. Add one, then redeploy.")
 		}
 		gs.DeployKey = k
+		by = " with its deploy key"
 	} else if t := credential(ctx, e.db, e.key, r.res.ID, "git_token"); t != nil {
 		gs.Token = string(t)
 		r.red = NewRedactor(append(secretsOf(r.env), string(t)))
 		r.logw.red = r.red
+		by = " with its stored token"
+	} else if e.ghToken != nil {
+		// The App is the last credential this panel reaches for, and only for a repository on its forge that the
+		// installation covers: a source the operator gave its own key or token never silently changes hands.
+		tok, used, err := e.ghToken(ctx, src.RepoURL)
+		if err != nil {
+			return "", fail("build", "The GitHub App could not authorise this clone: %v", err)
+		}
+		if used {
+			gs.Token = tok
+			r.red = NewRedactor(append(secretsOf(r.env), tok))
+			r.logw.red = r.red
+			by = " through the GitHub App installation"
+		}
 	}
-	r.logw.Sys("cloning " + src.RepoURL + " (" + branch + ")")
+	r.logw.Sys("cloning " + src.RepoURL + " (" + branch + by + ")")
 	// The clone gets its own deadline: a host that black-holes the connection has to fail this deployment after
 	// git.clone_timeout_s, not hold the worker until the whole build budget is gone.
 	cloneCtx, cancelClone := context.WithTimeout(ctx, limits.Timeout)

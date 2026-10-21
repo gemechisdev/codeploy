@@ -1,6 +1,8 @@
-// Package providers knows the wire shape of the forges that post at this panel. It converts a payload into the
-// package git domain types and nothing else: no SQL, no HTTP, no policy. Keeping the dialect here means adding
-// GitLab or Bitbucket later is a new file, not a new rule inside the gate.
+// Package providers knows the wire shape of the forges this panel talks to. Inbound, it converts a webhook payload
+// into the package git domain types; outbound, it is the GitHub App's protocol — JWTs, installation tokens and the
+// repository listing — and that is the only file here that makes a request. Keeping the dialect in one place means
+// adding GitLab or Bitbucket later is a new file, not a new rule inside the gate. Nothing in this package touches
+// SQL or the panel's policy.
 package providers
 
 import (

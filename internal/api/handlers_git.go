@@ -466,15 +466,22 @@ func (s *Server) receiveGithub(w http.ResponseWriter, r *http.Request) {
 	}
 	var secret []byte
 	if found {
-		// A resource with no webhook of its own returns no secret, so the length check below rejects it the same
+		// A resource with no webhook of its own returns no secret, so the check below rejects it the same
 		// way a wrong signature is rejected: there is nothing here that could have signed this post.
 		if secret, _, err = g.WebhookSecret(r.Context(), g.DB, rid); err != nil {
 			internalErr(w, err)
 			return
 		}
 	}
-	if !found || len(secret) == 0 || !git.VerifySignature(secret, raw, sig) {
-		// A payload naming no configured repository is refused without a delivery row. That is a deliberate
+	signed := found && len(secret) > 0 && git.VerifySignature(secret, raw, sig)
+	// An App installed on an organisation signs every repository's deliveries with one secret and posts them all to
+	// one URL, so a resource that has no webhook of its own is not proof that nothing signed this. The App's secret
+	// is tried second, over the same exact bytes: the HMAC rule does not change, only which held secret may satisfy
+	// it, and a panel without CODEPLO_GITHUB_APP_WEBHOOK_SECRET behaves exactly as it did.
+	if !signed && found && s.GitHubApp != nil && len(s.GitHubApp.WebhookSecret) > 0 {
+		signed = git.VerifySignature(s.GitHubApp.WebhookSecret, raw, sig)
+	}
+	if !signed { // A payload naming no configured repository is refused without a delivery row. That is a deliberate
 		// difference from recording it: this endpoint is public, and every anonymous POST that writes a row turns
 		// the delivery history into a disk-filling target.
 		if found {

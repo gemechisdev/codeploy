@@ -706,3 +706,31 @@ the health path for everything else; it also returns the phrase the deployment r
 preflight ("only app resources are supported in this build"), which would have failed every catalog database minutes
 after one-click deploy said it was working, so `database` joins `app` there. Its rollout is `stop_first`, because two
 servers writing one data directory is corruption, not a blue/green deploy.
+
+**The GitHub App is environment configuration, not a `git_connections` row.** The contract's `GitConnection` enum
+already admits `github_app`, so a row would have been legal — and wrong. An App is the daemon's identity, not a
+connection an operator names: its private key is the file GitHub hands out, and any route that could write one after
+boot is a way in for whoever holds `panel:admin`. `CODEPLO_GITHUB_APP_*` is the same shape the S3 destination already
+took, it fails at boot where an operator is watching, and it keeps the `/git/connections` list meaning "things a
+human created here" instead of mixing in a process-level credential. The App therefore has no route of its own either:
+its repository listing is `codeplo github-app repos`, built where `codeplo cron` and `codeplo templates` live.
+
+**An installation token lives in memory and nowhere else.** GitHub's token is a real credential with an hour to
+live, and sealing it into `resource_credentials` would give every reader of the database and the master key a way to
+clone every repository in the installation — and a copy that keeps working after someone revokes the installation in
+GitHub's UI. The in-memory cache dies with the daemon; a restart costs one API call, and the JWT that buys the token
+is signed per exchange and never written down. The CLI reports a token's length and expiry and never its value,
+because a credential in a terminal transcript is a credential in a shell history file and a support ticket.
+
+**The App is the last clone credential, not the first.** Precedence in the build step is deploy key, then the
+resource's stored token, then the App — and only for a repository on the App's own forge. An App installation is an
+organisation-wide grant, so letting it win over a credential the operator pinned to one repository would silently
+change which identity reaches that code, and a clone that succeeds against the wrong identity is a build of the wrong
+thing rather than a failure. A repository outside the installation is answered "not mine" and clones as it always
+did; refusing it would break public repositories that need no credential at all.
+
+**App deliveries are verified with the App's secret, second.** One installed App posts every repository's events to
+one URL, signed with one secret, so a resource that has no webhook of its own is not evidence that nothing signed the
+payload. `/webhooks/github` tries the per-resource secret first and the App's secret after, over the same exact bytes
+and the same HMAC rule — nothing about signature verification weakens, only which held secret may satisfy it, and a
+panel without `CODEPLO_GITHUB_APP_WEBHOOK_SECRET` behaves exactly as it did before the App existed.
