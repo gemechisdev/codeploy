@@ -375,6 +375,42 @@ func deref(p *string, def string) string {
 	return *p
 }
 
+// backupTimeout bounds the pre-deploy snapshot. The dump carries its own bound inside the databases service
+// (backup.timeout_s), so the step only has to be looser than that: a tighter step bound would kill a dump the
+// module was still willing to finish, and the deployment would then fail blaming a timeout on a step that was not
+// the slow part.
+func (r *run) backupTimeout(ctx context.Context) time.Duration {
+	if r.e.preDeploy == nil {
+		return time.Minute // the step returns immediately; the bound only needs to exist
+	}
+	return time.Duration(r.e.settingInt(ctx, "backup.timeout_s", 900))*time.Second + time.Minute
+}
+
+// preDeployBackup takes the snapshot the pre-deploy rule asks for. It is a step of its own rather than a line inside
+// release or start because its failure has to stop the deployment before either of those runs, and because the
+// deployment log is the operator's proof of what happened to their database today.
+func (r *run) preDeployBackup(ctx context.Context, _ context.CancelCauseFunc) error {
+	if r.e.preDeploy == nil {
+		r.logw.Sys("no database module on this daemon: skipping the pre-deploy backup")
+		return nil
+	}
+	taken, err := r.e.preDeploy(ctx, r.res.ID)
+	if err != nil {
+		// The deployment stops here. Proceeding would replace a database the panel has just failed to copy, and a
+		// failed migration on data that was never snapshotted is the one accident this step exists to prevent.
+		return fail("backup", "%s The deployment was stopped before the new version touched your database.", err)
+	}
+	switch {
+	case taken:
+		r.logw.Sys("pre-deploy backup of the resource's database completed")
+	default:
+		// Not a warning: most resources are application containers with no schedule, and a deployment log that
+		// called that out on every deploy would teach the operator to ignore it.
+		r.logw.Sys("no backup schedule on this resource: no pre-deploy snapshot taken")
+	}
+	return nil
+}
+
 // release runs the optional release command in a one-off container before the switch. It uses the container
 // lifecycle only (create, start, wait, kill, remove): this daemon cannot interrupt an exec, so a hung release
 // command is ended by killing its container when the step's context ends.

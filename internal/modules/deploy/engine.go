@@ -134,8 +134,13 @@ type Deps struct {
 	// Edge re-renders the Caddy config from the database. Best effort: if Caddy is down the supervisor loop repairs it.
 	Edge    func(context.Context) error
 	Publish func(name string, data any)
-	DataDir string
-	Config  Config
+	// PreDeploy snapshots the resource's database before a new version can touch it. nil when the databases module
+	// is off, which the step below reports in the deployment log and then passes — a panel that cannot deploy
+	// because an optional module is switched off would be a worse failure than one without the safety net.
+	// It returns whether a snapshot was taken, so the log says which of the two happened.
+	PreDeploy func(ctx context.Context, resourceID string) (bool, error)
+	DataDir   string
+	Config    Config
 }
 
 // Engine runs deployments. One Engine per daemon; the queue's single worker gives build concurrency = 1.
@@ -146,7 +151,9 @@ type Engine struct {
 	b   builders.Builder
 	edg func(context.Context) error
 	pub func(string, any)
-	cfg Config
+	// preDeploy is Deps.PreDeploy; see the note there for what nil means.
+	preDeploy func(context.Context, string) (bool, error)
+	cfg       Config
 	// rawSteps keeps the timeouts the caller set explicitly. withDefaults fills every zero value, so without it
 	// the engine could not tell "the tests asked for this bound" from "nobody asked" and would ignore settings.
 	rawSteps StepTimeouts
@@ -161,7 +168,7 @@ func New(d Deps) *Engine {
 		pub = func(string, any) {}
 	}
 	return &Engine{db: d.DB, key: d.Key, rt: d.Runtime, b: d.Builder, edg: d.Edge, pub: pub,
-		cfg: d.Config.withDefaults(d.DataDir), rawSteps: d.Config.Steps, running: map[string]context.CancelCauseFunc{}}
+		preDeploy: d.PreDeploy, cfg: d.Config.withDefaults(d.DataDir), rawSteps: d.Config.Steps, running: map[string]context.CancelCauseFunc{}}
 }
 
 // timeouts resolves the per-step bounds: an explicit Config value wins, otherwise the seeded setting does, so an
@@ -463,6 +470,12 @@ func (r *run) execute(ctx context.Context) error {
 		acquireTimeout = st.Build
 	}
 	if err := r.do(ctx, StBuilding, "build", acquireTimeout, r.acquire); err != nil {
+		return err
+	}
+	// Before the release command, not before the switch: a release command runs migrations, and the point of a
+	// pre-deploy snapshot is that the data the *previous* version was serving is on disk before anything new can
+	// change it.
+	if err := r.do(ctx, StStarting, "backup", r.backupTimeout(ctx), r.preDeployBackup); err != nil {
 		return err
 	}
 	if len(r.res.Cfg.ReleaseCommand) > 0 {
