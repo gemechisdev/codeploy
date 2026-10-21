@@ -37,7 +37,7 @@ const SETTING_RULES: Record<string, { type: 'boolean' | 'int' | 'number'; min?: 
   'git.clone_timeout_s': { type: 'int', min: 1, max: 3600, label: 'Clone timeout (s)' },
   'git.max_clone_mb': { type: 'int', min: 16, max: 262144, label: 'Largest clone (MiB)' },
   'git.preview_ttl_hours': { type: 'int', min: 1, max: 720, label: 'Preview lifetime (h)' },
-  'git.preview_max': { type: 'int', min: 1, max: 100, label: 'Preview environments kept at once' },
+  'git.preview_max': { type: 'int', min: 1, max: 100, label: 'Preview environments kept per service' },
   'git.preview_memory_mb': { type: 'int', min: 64, max: 65536, label: 'Memory cap per preview (MiB)' },
   'metrics.sample_interval_s': { type: 'int', min: 10, max: 3600, label: 'Metric sample interval (s)' },
   'metrics.max_samples': { type: 'int', min: 120, max: 1000000, label: 'Metric samples kept' },

@@ -121,7 +121,7 @@ const SETTING_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'git.clone_timeout_s', label: 'Clone timeout (s)', hint: 'A repository that cannot be fetched this fast fails the deployment.' },
   { key: 'git.max_clone_mb', label: 'Largest clone (MiB)', hint: 'A working tree bigger than this is not checked out.' },
   { key: 'git.preview_ttl_hours', label: 'Preview lifetime (h)', hint: 'A preview pull request has not pushed to comes down after this.' },
-  { key: 'git.preview_max', label: 'Previews kept at once', hint: 'The cap that stops a busy repository building a hundred images here.' },
+  { key: 'git.preview_max', label: 'Previews kept per service', hint: 'A pull request past the cap replaces the branch nobody has pushed to in longest.' },
   { key: 'git.preview_memory_mb', label: 'Memory cap per preview (MiB)', hint: 'A preview never gets more than this, whatever the service it previews is allowed.' },
   { key: 'metrics.sample_interval_s', label: 'Metric sample interval (s)', hint: 'How often the host is measured.' },
   { key: 'metrics.max_samples', label: 'Metric samples kept', hint: 'The chart history the host keeps in memory and on disk.' },
