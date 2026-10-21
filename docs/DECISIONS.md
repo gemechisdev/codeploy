@@ -638,3 +638,41 @@ in the order the process wrote them, not two columns a reader has to interleave 
 **`codeplo cron` is dispatched before the shared CLI flag set parses anything.** `cron add` carries its own flags and
 an argv after `--`, and the flag package would stop at `find` and then exit on `-mtime`. One early dispatch keeps
 the command word intact, the same reason `pty-helper` is dispatched there.
+
+**P7's contract surface is two routes, so the rest of the phase is not routes.** `api/openapi.yaml` gives templates
+`GET /templates` and `POST /templates/{key}/deploy` and gives extensions, the MCP server, PR previews, commit status
+and the GitHub App provider nothing. Adding routes for them would mean regenerating the stub table, the authorization
+matrix and the mock parity tests to match a contract nobody wrote. They are built the way K2's cron was: behind the
+CLI, the daemon's own loops, and outbound calls to services that asked to be called.
+
+**A template is listed only when this panel can deploy it.** One resource is one container here, and a resource
+config carries an image, a port, limits and an environment — not a `command:`, an `entrypoint:` or a `depends_on:`.
+A multi-service file, or a single-service file that relies on any of the three, is refused with its own words rather
+than listed and half-run: an operator who clicks Deploy on a card that produces a container which is not the one the
+template describes has been shown a lie, and the catalog has no field for "not yet". This is why the shipped catalog
+has adminer where the mock's demo data had Plausible — Plausible Community Edition is a ClickHouse cluster wearing
+one logo, and it will come back with a Compose runner.
+
+**A template body is checked by the isolation policy, not by a copy of its rules.** `policy.ParseCompose` and
+`policy.Enforce` are what a hand-written compose file already goes through, so importing a third-party template
+cannot bring a privileged container, a host bind, the Docker socket or a published port in through the catalog, and
+the refusal an operator reads is the policy's own sentence rather than a paraphrase written twice.
+
+**Every credential a template needs comes from the panel, and a template that supplies its own is refused.** The
+deploy request carries a project, an environment and a name — no fields for template values — so the only honest
+answers for `${POSTGRES_PASSWORD}` are "the panel generates it" or "this template cannot be deployed here". The
+parser therefore refuses an empty credential placeholder, a credential with a literal value in the file, and a
+generated name that also carries a default; it strips placeholders before looking, so `hunter2${CODEPLO_PASSWORD}`
+still reads as a shipped secret. Coolify's `SERVICE_PASSWORD*`/`SERVICE_FQDN*` names are recognised as the same
+magic, which is what makes an imported template's secrets arrive already generated.
+
+**The catalog is re-read on every list, and a drop-in file replaces the bundled template with the same key.**
+Importing a template is writing a file into `<DataDir>/templates`; a panel that needs a restart to notice has
+already answered "not found" to the operator who added it, and the catalog is five small files rather than something
+to cache. Replacement rather than collision is how an operator pins an image tag without forking the panel.
+
+**`codeplo templates check` exists because an issue has no route.** The contract's `Template` object is closed, so
+"why is this file not in the catalog?" cannot be answered over HTTP, and a template that is not deployable is not
+listed to explain itself. The CLI prints the reason for every refused file and exits non-zero when anything was
+refused, which makes an import reviewable from CI. The bundled data sits in a root `templates` package for a
+similarly mundane reason: `go:embed` cannot reach up out of its own directory, and the plan puts the data there.

@@ -1,0 +1,21 @@
+# name: PostgreSQL
+# slogan: Relational database. The panel generates its password when it deploys.
+# category: Databases
+# tags: postgres,sql,relational
+# logo: svgs/postgres.svg
+# documentation: https://www.postgresql.org/docs/
+# port: 5432
+# icon: database
+# kind: database
+# memory: 256
+services:
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-codeplo}
+      POSTGRES_PASSWORD: ${CODEPLO_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-codeplo}
+    volumes:
+      - data:/var/lib/postgresql/data
+volumes:
+  data: {}

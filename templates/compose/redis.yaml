@@ -1,0 +1,17 @@
+# name: Redis
+# slogan: In-memory cache and queue. It has no password: only this environment's own containers can reach it.
+# category: Databases
+# tags: redis,cache,queue
+# logo: svgs/redis.svg
+# documentation: https://redis.io/docs/
+# port: 6379
+# icon: database
+# kind: database
+# memory: 64
+services:
+  redis:
+    image: docker.io/library/redis:7-alpine
+    volumes:
+      - data:/data
+volumes:
+  data: {}

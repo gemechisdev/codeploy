@@ -32,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | pty-helper (systemd only)")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -52,6 +52,11 @@ func run(cmd string, args []string) error {
 	// below from parsing half of it and exiting on the rest.
 	if cmd == "cron" {
 		return cronCommand(args)
+	}
+	// templates takes its own flags too, and it reads files rather than the database, so it never needs the data
+	// directory opened at all.
+	if cmd == "templates" {
+		return templatesCommand(args)
 	}
 	cfg, err := config.Load()
 	if err != nil {

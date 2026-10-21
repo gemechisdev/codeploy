@@ -1,0 +1,20 @@
+# name: MySQL
+# slogan: MySQL 8 with a root password the panel generates at deploy time.
+# category: Databases
+# tags: mysql,sql,relational
+# logo: svgs/mysql.svg
+# documentation: https://dev.mysql.com/doc/
+# port: 3306
+# icon: database
+# kind: database
+# memory: 384
+services:
+  mysql:
+    image: docker.io/library/mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CODEPLO_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-codeplo}
+    volumes:
+      - data:/var/lib/mysql
+volumes:
+  data: {}

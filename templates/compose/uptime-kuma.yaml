@@ -1,0 +1,17 @@
+# name: Uptime Kuma
+# slogan: Self-hosted uptime monitor for your own services.
+# category: Monitoring
+# tags: monitoring,uptime,alerts
+# logo: svgs/uptime-kuma.svg
+# documentation: https://github.com/louislam/uptime-kuma/wiki
+# port: 3001
+# icon: activity
+# kind: app
+# memory: 128
+services:
+  uptime-kuma:
+    image: docker.io/louislam/uptime-kuma:1
+    volumes:
+      - data:/app/data
+volumes:
+  data: {}

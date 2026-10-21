@@ -326,13 +326,42 @@ nothing writes is a claim about a capability that does not exist.
 | Pre-deploy backup | `internal/modules/deploy/{engine,steps}.go`, `internal/modules/databases/schedule.go` | `deploy.Deps.PreDeploy` is the seam and it runs **before the release command**, not before the switch: a release command runs migrations, and the point of the snapshot is that the data the previous version was serving is on disk before anything new can touch it. The dump is synchronous — "we backed it up before we replaced you" is only a promise if the bytes are written first — and its failure stops the deployment. It is a step of its own so the deployment log is the proof of what happened to the database today. nil (databases module off) logs that no snapshot was possible and continues; a panel that could not deploy because an optional module was off would be the worse failure |
 | Scheduled backups | `internal/modules/databases/schedule.go` | `ScheduleTick` fires each schedule whose expression matches the current minute, guarded against a double fire by the run row rather than a saved next-fire column, and misses a minute the daemon was not running for instead of catching it up — what Vixie cron does on an asleep machine, and the honest answer when a missed backup and a duplicated one are both possible. `Recover` closes attempts a dead process left `running`, because `StartRun` refuses a concurrent attempt and one crash at 03:00 would otherwise silently stop every later backup. `PruneAll` sweeps retention per schedule on the same minute boundary: retention is the schedule's rule, not the attempt's, so a schedule whose next run never happens still stops holding its old dumps |
 
+## Phase 7 — Extensibility (2026-10-21): in progress, compiling, **not tested**
+
+Phase 7 begins with the template catalog (J6). The contract's whole P7 surface is two routes — `GET /templates` and
+`POST /templates/{key}/deploy` — so the rest of the phase (extensions, MCP, GitHub App, commit status, PR previews)
+is built where the K2 cron runner was built: behind the CLI, the daemon's loops and outbound calls, never as an
+invented route that would break the stub generator, the authorization matrix and the mock parity tests.
+
+Same instruction as Phases 4, 5 and 6: development only. The gates that ran for every unit below are
+`gofmt -l internal cmd templates` (empty), `go build ./internal/... ./cmd/... ./templates/...` and
+`go vet` over the same tree (all clean). **No Phase 7 test has been executed and none is claimed to pass.** The only
+thing run beyond the gates was `codeplo templates check` against a scratch directory, which prints what the catalog
+did with five real files and two deliberately broken ones — a look at the parser's output, not a test of it.
+
+| Area | Files | What it does |
+|---|---|---|
+| Template format | `internal/modules/templates/templates.go` | The Coolify metadata header (`# slogan:`, `# category:`, `# tags:`, `# logo:`, `# port:`, `# documentation:`) plus the four lines this panel needs and that catalog has no equivalent for: `# name:`, `# icon:`, `# kind:` and `# memory:`. Kind is what a deploy creates — `database` resources are the ones the backups module knows how to dump, `compose` is what the `deploy.compose` flag gates |
+| Parser | `internal/modules/templates/parser.go` | A template becomes exactly one container or it is not listed: a multi-service file is refused with its service names, and so is a `command:`/`entrypoint:`/`depends_on:` the panel's resource config cannot carry, because half-running a template is worse than refusing it. The body is then checked by `policy.ParseCompose` + `policy.Enforce` — the same isolation verdict a hand-written compose file gets, not a copy of its rules — so an imported template cannot bring a privileged container, a host bind or the Docker socket in through the catalog |
+| Placeholders | `internal/modules/templates/placeholders.go` | `${NAME}`, `${NAME:-default}` and `${NAME:?what it is for}`, with `$${…}` left as the literal it is. The names the panel fills itself are `${CODEPLO_PASSWORD}`/`${CODEPLO_PASSWORD_<length>}`, `${CODEPLO_NAME}` and `${CODEPLO_URL}`, with Coolify's `SERVICE_PASSWORD*` and `SERVICE_FQDN*`/`SERVICE_BASE_URL` recognised as the same thing so an imported template's secrets arrive already pointing at the generator. Anything else is either defaulted in the file or a refusal, because **the deploy request has no fields for template values** and an unfilled placeholder is a container running with an empty password |
+| Shipped credentials | `internal/modules/templates/parser.go` | A credential-shaped environment key with a literal value in the template (`ADMIN_PASSWORD: changeme`) is refused, not listed. A placeholder the template leaves empty is refused the same way. The check strips placeholders before looking, so `hunter2${CODEPLO_PASSWORD}` is still a shipped secret |
+| Catalog | `internal/modules/templates/catalog.go`, `templates/embed.go`, `templates/compose/*.yaml` | Five bundled templates — postgres, mysql, redis, uptime-kuma, adminer — embedded so a fresh panel has a catalog before it has a filesystem to read one from, plus `<DataDir>/templates` (`CODEPLO_TEMPLATES_DIR`) for files an operator drops in. Nothing is cached: a catalog that needs a restart to notice a file has already told the operator who added it that the file does not exist. A drop-in with a bundled key **replaces** it, which is how an operator pins an image tag without forking the panel. Refusals are `Issue`s, never list entries, because the contract's `Template` object has no field for "why this one is broken" |
+| `codeplo templates` | `cmd/codeplo/templates.go` | `list [--json]` and `check`. `check` prints the deployable catalog, each template's policy notes, and a reason for every file the panel refused — the one thing the API cannot show — and exits non-zero when anything was refused, so it is usable from a CI job that imports templates. It takes its own flags and is dispatched before the shared CLI flag set, the way `cron` is |
+
 ## Next
 
 **P6 — Operations** is backend-complete. What it still owes is its frontend (monitoring charts, notifications page,
 databases, backups and the restore wizard) and its test pass — including the first `goose up` that applies migration
 0006 to any database, which is a hard blocker for daemon boot and therefore for every later phase's runtime checks.
 
-Then P7 (extensibility) and P9 (release hardening); P8 is explicitly later.
+**P7 — Extensibility** has its catalog parser and its shipped templates. Next in the phase is the deploy half of
+J6: `GET /templates` and `POST /templates/{key}/deploy`, which turns a template into a resource row, its named
+volumes and its generated credentials sealed in `resource_env_vars`. Databases from the catalog need one engine
+change first: the observation step asks an HTTP path, and Postgres does not serve one, so a `database` resource is
+observed by connecting to its port instead. After that comes the GitHub App provider (G5), commit status (G7), PR
+previews (G8), extensions (J4) and the MCP module (J7).
+
+P9 (release hardening) follows; P8 is explicitly later.
 
 
 P5's own leftovers, none of them blocking: the frontend's Source & CI/CD tab (backend parity for it is what the mock
