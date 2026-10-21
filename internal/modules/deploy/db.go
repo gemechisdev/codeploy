@@ -18,8 +18,8 @@ type EnvVar struct {
 	Secret            bool
 }
 
-func (v EnvVar) runtime() bool { return v.Scope == "runtime" || v.Scope == "both" }
-func (v EnvVar) build() bool   { return v.Scope == "build" || v.Scope == "both" }
+func (v EnvVar) Runtime() bool { return v.Scope == "runtime" || v.Scope == "both" }
+func (v EnvVar) Build() bool   { return v.Scope == "build" || v.Scope == "both" }
 
 // LoadEnv decrypts a resource's variables.
 func LoadEnv(ctx context.Context, db *sql.DB, key []byte, resourceID string) ([]EnvVar, error) {

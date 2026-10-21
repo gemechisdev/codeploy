@@ -74,7 +74,6 @@ CREATE TABLE backup_schedules (
   cron TEXT NOT NULL,
   destination TEXT NOT NULL CHECK (destination IN ('local','s3')),
   retention_days INTEGER NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
   last_run_at TEXT,
   last_run_status TEXT CHECK (last_run_status IN ('success','failed','running')),
   created_at TEXT NOT NULL

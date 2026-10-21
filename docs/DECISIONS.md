@@ -479,3 +479,82 @@ fails *this* deployment after the timeout rather than holding the worker until t
 `CLI.Clone` measures the checked-out tree afterwards and refuses it with `ErrSourceTooLarge` if it is over budget.
 `--depth 1` bounds history, not size: a repository of large binaries clones fast and then fills the disk at the
 build, which is the failure the setting exists to prevent.
+
+## Phase 6 — Operations: metrics, alerts, notifications, backups (2026-10-21)
+
+**`metrics.max_samples` is enforced as a time window, not a row count.** "Keep the newest 20160 rows of each series"
+costs a 20160-value subquery per series per tick, or an OFFSET scan of the same length. The same policy as an age —
+cap × sample interval — is one ULID index seek to a bound and a range delete after it, so it costs what it removes and
+nothing else. The consequence is stated rather than hidden: change the sample interval and the history window changes
+with it, because the cap the operator configured is in samples. Window filtering is on the `id` column for the same
+reason, which is why `crypto.ULIDFloor` exists — a range bound that is never stored.
+
+**Rates are differences, and the first sample after a start has nothing to difference against.** CPU percentage and
+network rate report zero for that sample. Carrying `/proc`'s load averages or the previous process's numbers in from
+disk would put two different measurements in one series and make the chart's first point a lie.
+
+**`net_rx_kbps` is kilobytes per second, not kilobits.** The contract names the field, the mock computes
+`bytes / 1024 / seconds`, and a panel that quietly redefines a unit its own UI graphs is worse than a panel with a
+slower graph. The name stays ambiguous and the code does not.
+
+**A delivery failure is a result, not an error.** `notify.deliver` returns `ok:false` with the provider's sentence when
+Telegram is down, because an alert that could not be sent still has to be recorded and shown — the incident happened,
+the message did not. The exception is a `FieldErrors` from a driver: that means the stored configuration is unusable,
+which is a defect to fix and not an outage to tolerate, so it propagates as an error.
+
+**Alert rules are a code catalog, and three of the six numeric conditions refuse a non-numeric threshold.** The mock
+does not check, and a rule that can never fire looks exactly like a healthy host. This is the one place the
+implementation is stricter than the stub, and it is deliberate.
+
+**There is no alert SSE event.** `api/openapi.yaml` lists the `x-events` stream and `alert` is not in it; the panel
+learns about firings from `/system/status`'s `active_alerts` and from the notification channel that was configured.
+Inventing an event the contract does not carry would make the live client depend on something the mock never had.
+
+**The cron parser is 5-field and local to `internal/jobs`.** `robfig/cron` is not a dependency and pulling one in for
+one file is not worth it. Vixie semantics are kept where they matter: day-of-month and day-of-week OR when both are
+restricted, `7` folds to `0`, and `? L W #` and month names are refused with a message naming the token rather than
+accepted and misread. A resource's job is an **argv array**, never a shell string, so `command_json` is what runs.
+
+**A dump is compressed by the panel, not by the container.** The only way to pipe `pg_dumpall` or `mysqldump` through
+gzip inside one argv array is to build a shell string, and the database name and user in that string are
+operator-supplied variables. Interpolating them would be an injection point that fires on every scheduled backup, so
+the stream is gzipped on its way to the file and the exec's command stays a plain argument list.
+
+**The dump password goes in the exec's environment and never in argv.** `ExecWithEnv` exists for this: argv is what the
+panel logs, what `ps` shows inside the container, and what the daemon's `Inspect` returns, while `PGPASSWORD`,
+`MYSQL_PWD` and `REDISCLI_AUTH` are what the tools read by design. The same rule holds for the `codeplo cron` runner's
+per-job environment.
+
+**A restore takes a verified snapshot of the current state first, and refuses to start without one.** The plan says
+restores create a pre-restore snapshot; the decision is that it is not skippable. The snapshot is written to the host
+under `backups/pre-restore/` even when the schedule's destination is s3, because an operator standing at a broken
+database needs a file on the machine they are typing on, not an object in a bucket.
+
+**`backup.status` cannot be marked successful on intent.** A run succeeds only after the payload has been re-read from
+its final path and its size and SHA-256 match what the write pass counted, and — for an s3 destination — after the
+store's own `Stat` confirms the length. A dump truncated by a full disk has the intended size in memory and not on
+disk; that is the failure this whole pipeline exists to prevent, so verification is the second read, not the first.
+
+**Redis restores by replacing `/data/dump.rdb` and cycling the container.** A running Redis serves what it has in
+memory and will not load a file placed beside it, and the panel cannot introspect `dir`/`dbfilename` on an arbitrary
+image. The official Redis and Valkey images both start at `/data/dump.rdb`; a deployment that overrode it is not the
+deployment this panel created from a template, and the post-restart wait for the container to report running turns
+that into a stated failure instead of a silent success.
+
+**Engine detection is a documented heuristic on the image's repository name.** Matching the last path segment against
+alias sets (`postgres`/`postgresql`, `mysql`/`mariadb`, `redis`/`valkey`) reads `docker.io/library/postgres:16` and a
+`mirror-postgres` correctly and does not read `postgresql-exporter` as a database. The panel cannot introspect an
+arbitrary image's contents, and the alternative — a database resource whose engine is unknown — fails a backup
+anyway, so the guess is made visible in the error that follows.
+
+**`backup_schedules.enabled` was dropped from 0006 before it was ever applied.** No contract route can set or clear it,
+so the column would have been a claim about a capability that does not exist. `ListSchedules` lists what is there.
+
+**"Databases bind to the internal network only unless explicitly exposed" is already the runtime's policy, not a
+databases-module rule.** Published ports are owner-gated, bind to `127.0.0.1`, and are recorded in `config_json` as
+`published_ports`; a container with none is reachable only on `cpl-env-<env>`. Re-implementing it in the backup module
+would give two places the same promise, and one of them would drift.
+
+**`databases.Ops` and `monitor.Containers` are narrower than `runtime.Manager`.** Each port declares the methods that
+package actually calls. It keeps the monitor wireable on a host where container creation is refused, and it means a
+test fixture is five methods rather than a lifecycle.

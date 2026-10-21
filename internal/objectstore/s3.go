@@ -111,6 +111,11 @@ func New(cfg Config) (*Client, error) {
 // Bucket is the bucket every call is scoped to.
 func (c *Client) Bucket() string { return c.cfg.Bucket }
 
+// Prefix is the normalized prefix Key adds to every name. A caller that stores a full object URI and has to read
+// it back needs this: Put, Get, Stat and Delete apply the prefix themselves, so the name handed to them is the one
+// without it, and passing the stored URI straight through would address a different object than the one written.
+func (c *Client) Prefix() string { return strings.Trim(strings.TrimSpace(c.cfg.Prefix), "/") }
+
 // Key is the object name k is stored under: the configured prefix joined to k by exactly one slash. An empty
 // prefix and a leading slash on k are both tolerated, since a caller building a name from a resource id plus a
 // filename should not have to know which combination produced the string it holds.

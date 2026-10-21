@@ -54,7 +54,7 @@ func (r *run) specFor(role string) policy.Container {
 	env := []string{}
 	hasPort := false
 	for _, v := range r.env {
-		if v.runtime() {
+		if v.Runtime() {
 			env = append(env, v.Key+"="+v.Value)
 			if v.Key == "PORT" {
 				hasPort = true
@@ -344,7 +344,7 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 	req := builders.BuildRequest{ContextDir: ctxDir, Dockerfile: df, Tag: r.tag, MemoryBytes: r.buildMem,
 		Secrets: map[string]string{}, Args: map[string]string{}}
 	for _, v := range r.env {
-		if !v.build() {
+		if !v.Build() {
 			continue
 		}
 		if v.Secret {
