@@ -434,6 +434,12 @@ Still owed before any of this can be *claimed*, in the order the plan puts them:
 
 Group A (T1–T5) complete.
 
+### Group C progress
+
+| Task | Result |
+|---|---|
+| T27 `POST /setup/operator` mode=create | **Fixed** — `platform.CreateOperator` + handler; no more 501 on first-run path |
+
 ## Handoff index (2026-10-21)
 
 This file records what is **built**. The remaining work lives in three new files, and the four documents cross-reference

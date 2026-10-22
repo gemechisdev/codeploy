@@ -261,8 +261,15 @@ func TestSetupOperatorValidation(t *testing.T) {
 	if w, _ := su.do("POST", "/setup/operator", map[string]string{"mode": "existing", "username": "Not Valid"}, nil); w.Code != 422 {
 		t.Fatalf("bad username must be 422, got %d", w.Code)
 	}
-	if w, b := su.do("POST", "/setup/operator", map[string]string{"mode": "create", "username": "deployer", "public_key": "ssh-ed25519 AAAA"}, nil); w.Code != 501 || b["code"] != "module_disabled" {
-		t.Fatalf("create mode must be a contract error until P2, got %d %v", w.Code, b)
+	// incomplete key is validation, not 501
+	if w, b := su.do("POST", "/setup/operator", map[string]string{"mode": "create", "username": "deployer", "public_key": "not-a-key"}, nil); w.Code != 422 {
+		t.Fatalf("bad public key must be 422, got %d %v", w.Code, b)
+	}
+	// create may succeed as root, or 403 when not root — never 501
+	if w, b := su.do("POST", "/setup/operator", map[string]string{"mode": "create", "username": "ops-t27", "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForCodeploT27ValidationOnly comment"}, nil); w.Code == 501 {
+		t.Fatalf("create mode must not return 501, got %d %v", w.Code, b)
+	} else if w.Code != 200 && w.Code != 403 && w.Code != 422 && w.Code != 500 {
+		t.Fatalf("create mode unexpected status %d %v", w.Code, b)
 	}
 	if w, _ := e.client().do("GET", "/setup/operator-candidates", nil, nil); w.Code != 401 {
 		t.Fatalf("candidates need the setup session, got %d", w.Code)

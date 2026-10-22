@@ -322,8 +322,8 @@ func (s *Server) setupOperatorCandidates(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, map[string]any{"items": platform.OperatorCandidates()})
 }
 
-// setupOperator records an existing sudo user as the operator. Creating a user needs root and arrives with the
-// P2 hardening helper, so mode "create" is refused with a contract error instead of being faked.
+// setupOperator records the host operator: either an existing sudo user, or a newly created one (mode "create")
+// with the caller's SSH public key. Create requires root (installer/setup path).
 func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 	p, _, ok := s.setupSession(w, r)
 	if !ok {
@@ -337,26 +337,50 @@ func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 		invalid(w, map[string]string{"username": "Lowercase letters, digits, \"-\" and \"_\" (max 32)"})
 		return
 	}
-	if b.Mode == "create" {
-		writeErr(w, 501, "module_disabled", "Creating an operator user needs the host-hardening helper (P2). Choose an existing user.", map[string]any{"implemented": false})
-		return
-	}
-	var cand *platform.Operator
-	for _, c := range platform.OperatorCandidates() {
-		if c.Username == b.Username {
-			c := c
-			cand = &c
+	var cand platform.Operator
+	switch b.Mode {
+	case "create":
+		op, err := platform.CreateOperator(r.Context(), b.Username, b.PublicKey)
+		if err != nil {
+			msg := err.Error()
+			switch {
+			case strings.Contains(msg, "public key"):
+				invalid(w, map[string]string{"public_key": msg})
+			case strings.Contains(msg, "requires root"):
+				writeErr(w, 403, "forbidden", "Creating an operator requires the panel to run as root during setup. Choose an existing sudo user, or re-run setup as root.", nil)
+			case strings.Contains(msg, "already exists"):
+				invalid(w, map[string]string{"username": "User already exists — choose \"existing\" or a different name"})
+			case strings.Contains(msg, "invalid username"):
+				invalid(w, map[string]string{"username": "Lowercase letters, digits, \"-\" and \"_\" (max 32)"})
+			default:
+				writeErr(w, 500, "internal_error", "Could not create operator: "+msg, nil)
+			}
+			return
 		}
-	}
-	if cand == nil || !cand.Sudo {
-		invalid(w, map[string]string{"username": "Choose a user with sudo access and an authorized_keys file"})
+		cand = op
+	case "existing", "":
+		var found *platform.Operator
+		for _, c := range platform.OperatorCandidates() {
+			if c.Username == b.Username {
+				c := c
+				found = &c
+				break
+			}
+		}
+		if found == nil || !found.Sudo {
+			invalid(w, map[string]string{"username": "Choose a user with sudo access and an authorized_keys file"})
+			return
+		}
+		cand = *found
+	default:
+		invalid(w, map[string]string{"mode": "Must be \"existing\" or \"create\""})
 		return
 	}
 	err := s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
 		if _, err := tx.Exec(`UPDATE setup_state SET operator=?, step='audit' WHERE id=1`, cand.Username); err != nil {
 			return audit.Event{}, err
 		}
-		return s.rec(r.Context(), tx, r, p, "setup.operator_set", "user", p.User.ID, map[string]any{"operator": cand.Username})
+		return s.rec(r.Context(), tx, r, p, "setup.operator_set", "user", p.User.ID, map[string]any{"operator": cand.Username, "mode": b.Mode})
 	})
 	if err != nil {
 		internalErr(w, err)

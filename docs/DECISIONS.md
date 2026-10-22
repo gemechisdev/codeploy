@@ -865,3 +865,11 @@ CLI's non-zero exit comes from the flag being on with something missing (`git.pr
 what it was told, which is never a failure). `list` gained a state column for the same reason it needed the parent's
 name: a hostname alone cannot say whether the container behind it still exists, and a row whose resource is gone is
 the sweep's bookkeeping to finish, which an operator who deleted it by hand needs to see rather than infer.
+
+## T27 — setup operator create mode is real (2026-10-22)
+
+`POST /setup/operator` with `mode:"create"` was a 501 that the first-run UI still offered. Create is now implemented
+in `platform.CreateOperator`: `useradd -m`, sudo/wheel membership, and a single-line `authorized_keys` write. It
+requires root (installer/setup path); when the panel is not root the handler returns 403 with guidance to pick an
+existing sudo user. Invalid keys and usernames are 422. The mock already accepted create; the server matches it.
+
