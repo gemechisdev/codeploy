@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/codeplo/codeplo/internal/crypto"
 )
@@ -263,4 +264,23 @@ func (s *Service) ListDeliveries(ctx context.Context, q Querier, resourceID stri
 
 func isUniqueErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// PruneDeliveries removes webhook_deliveries older than logs.retention_days (default 14).
+// T37: delivery history is append-only without this pass and would grow without bound on a busy panel.
+func (s *Service) PruneDeliveries(ctx context.Context) (int, error) {
+	days := 14
+	var v string
+	if err := s.DB.QueryRowContext(ctx, `SELECT value FROM settings WHERE key='logs.retention_days'`).Scan(&v); err == nil {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			days = n
+		}
+	}
+	cutoff := s.now().UTC().Add(-24 * time.Duration(days) * time.Hour).Format("2006-01-02T15:04:05.000Z")
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM webhook_deliveries WHERE received_at < ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

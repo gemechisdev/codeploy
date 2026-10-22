@@ -886,3 +886,63 @@ instead of a generic 404. Deleting it would change the failure mode of the next 
 routes entirely, so the flag was never read. Removed the field and its assignments. CSRF remains required on
 every non-GET session request that is not an API token (existing behaviour, covered by TestSessionNonGETRequiresCSRF).
 
+## T28 — terminal ticket step-up only for as_root (2026-10-22)
+
+OpenAPI `x-step-up: true` on `POST /terminal/ticket` means "may require step-up", not "always".
+The server and mock require step-up only when `as_root` is true. Contract description updated to match.
+
+## T29 — TerminalSession.recorded always false until E4 (2026-10-22)
+
+Recording is not implemented. The API continues to return `recorded: false` and the OpenAPI field documents
+that fact. Implementing byte-level recording is deferred; removing the field would break clients for no gain.
+
+## T30 — Idle RSS budget unmet (2026-10-22)
+
+Measured idle RSS was 78.8 MB vs Profile-A 50 MB. Do not tune silently. Report in release notes; re-measure on
+the reference VM in CI (T49) is the authoritative number.
+
+## T31 — Caddy zero-drop spike remains unmet (2026-10-22)
+
+Spike A stays strict and unmet (flaky reload timing). Record honestly in release notes; do not weaken the assertion.
+
+## T33 — Module interface unused; keep ADR 0005 as aspirational (2026-10-22)
+
+`internal/modules/module.go` Registry.Register is never called; routes are wired by `internal/api` tables.
+Keep the types for future adoption rather than deleting them mid-build. ADR 0005 describes the target shape;
+a follow-up can either adopt Register or rewrite the ADR when P8 starts.
+
+## T38 — single resource per webhook delivery (2026-10-22)
+
+Monorepo fan-out (one push → several path-filtered resources) is schema-ready and unbuilt. Until it is,
+`findSourceByRepo` deploys at most one resource per delivery (lowest resource_id wins). Path filters still
+decide *whether* that resource builds, not *which peers* also build. Contract and handler comments state the
+single-target rule explicitly.
+
+## Open gaps index (T42, 2026-10-22)
+
+Decisions already recorded for Group C items so they are not re-litigated:
+
+| ID | Decision |
+|---|---|
+| T27 | Operator create mode implemented (root required) |
+| T28 | Ticket step-up only when `as_root` |
+| T29 | `recorded` always false until E4 |
+| T30 | RSS 78.8 MB vs 50 MB — report, do not silent-tune |
+| T31 | Caddy zero-drop spike unmet — keep strict |
+| T32 | Keep unreachable `stub()` as laterPhase safety net |
+| T33 | Module interface kept; Register unused until adopted |
+| T34 | Removed unread `NoCSRF` |
+| T35 | In-memory TOTP replay; 90s window is the bound |
+| T36 | sqlc scaffold removed (hand-written SQL) |
+| T37 | webhook_deliveries pruned with logs.retention_days |
+| T38 | Single resource per delivery until monorepo fan-out |
+| T39 | Installer already verifies seven artefacts |
+| T40 | Keep CODEPLO_URL refusal; preview domain is not a template address |
+| T41 | Source UI is SourceTab/GitTab, not features/git/* |
+
+## T40 — keep ${CODEPLO_URL} refusal at parse time (2026-10-22)
+
+`CODEPLO_PREVIEW_DOMAIN` serves PR preview hostnames, not template catalog deploys. A template still has no
+address to hand over at deploy time (the operator adds a domain after the resource exists). Keep the
+`classify` FillURL refusal; lifting it waits on a deliberate panel-domain-for-templates decision.
+

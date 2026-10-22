@@ -81,7 +81,11 @@ func NewRecoveryCodes(n int) (codes, hashes []string) {
 func NormalizeRecovery(c string) string { return strings.ToLower(strings.TrimSpace(c)) }
 
 // ReplayGuard rejects a TOTP code already accepted for the same subject within its validity window.
-// It is in-memory: a daemon restart forgets it, which is bounded by the 30 s step plus skew.
+//
+// T35: the set is in-memory on purpose. A daemon restart forgets it, which is bounded by the 30 s TOTP
+// step plus skew (~90 s prune). Persisting codes would need a new migration and a prune job for a
+// window that already closes on its own; the residual risk is one reused code after an immediate
+// restart inside that window, which requires both the OTP and a compromised session path.
 type ReplayGuard struct {
 	mu   sync.Mutex
 	seen map[string]time.Time

@@ -1,6 +1,10 @@
 // Package modules: Module contract (plan 4.3) and registry. A disabled module registers no routes and no jobs.
 package modules
 
+// T33: Registry.Register is not called by the daemon today; routes are wired from internal/api
+// route tables. These types remain the planned module contract (ADR 0005) and must not be deleted
+// without rewriting that ADR.
+
 import (
 	"context"
 	"database/sql"

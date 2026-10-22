@@ -1935,12 +1935,16 @@ paths:
   /terminal/ticket:
     post:
       operationId: createTerminalTicket
-      summary: Single-use WS ticket (<=30 s); root needs step-up
+      summary: Single-use WS ticket (<=30 s); as_root needs step-up
       tags:
       - terminal
       x-permission: terminal:container
       x-step-up: true
-      description: May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+      description: |
+        Step-up is required only when `as_root` is true (host shell as root).
+        Non-root host and container tickets do not require step-up. When step-up
+        is required the response is `403 step_up_required` and the client opens
+        the dialog and retries once.
       requestBody:
         required: true
         content:
@@ -4863,6 +4867,7 @@ components:
           - type: 'null'
         recorded:
           type: boolean
+          description: Always false in this build. Byte-level session recording (E4) is not implemented; the field is retained so clients do not break when recording ships behind terminal.record_sessions.
       additionalProperties: false
       required:
       - id

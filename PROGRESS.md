@@ -21,7 +21,7 @@ Evidence tables below; full detail in `TEST_REPORT.md`, judgment calls in `docs/
 | Hardening API | `internal/api/handlers_hardening.go`, `handlers_hardening_apply.go` | `/hardening/checks` (with `plan_diff` + `apply_enabled`), `/audit`, `/plan`, `/preflight`, `/apply`, `/confirm/{id}`, `/revert/{id}`, `/runs`, `/changes` |
 | Dead-man switch | `hardening.ScheduleRevertTimer` + `cmd/codeplo/main.go` `revert <id>` | `systemd-run --on-active=<window>s codeplo revert <id>`; the CLI needs neither daemon, database nor network |
 | Platform | `internal/platform/{exec,systemd,distro,apt,host_*}.go` | fixed-argv runner, `SystemdActive`, distro item paths |
-| Deploy | `deploy/install.sh`, `deploy/caddy/{codeplo-caddy.service,bootstrap.json}`, `deploy/codeplod.service`, `Makefile` `dist` | installer now ships and verifies five artefacts, requires Caddy as a hard prerequisite, asserts the panel answers, and templates `/etc/default/codeplod` |
+| Deploy | `deploy/install.sh`, `deploy/caddy/{codeplo-caddy.service,bootstrap.json}`, `deploy/codeplod.service`, `Makefile` `dist` | installer ships and verifies seven artefacts, requires Caddy as a hard prerequisite, asserts the panel answers, and templates `/etc/default/codeplod` |
 | Tests | `internal/api/{edge_test,hardening_apply_test}.go`, `internal/modules/edge/*_test.go`, `internal/modules/hardening/*_test.go` | zero-mutation audit diff, Tier-1 idempotency, runtime-first ordering, dead-man arming and absence for Tier 1, live-state revert, operator-bannable jail refusal, preflight refusals |
 
 ## Phase 2 — verification (2026-10-20)
@@ -438,9 +438,23 @@ Group A (T1–T5) complete.
 
 | Task | Result |
 |---|---|
-| T27 `POST /setup/operator` mode=create | **Fixed** — `platform.CreateOperator` + handler; no more 501 on first-run path |
-| T32 unreachable `stub()` | **Decided** — kept as laterPhase safety net; comment + DECISIONS entry |
-| T34 `RouteDef.NoCSRF` unread | **Fixed** — field removed; Public routes already skip CSRF |
+| T27 setup operator create 501 | **Fixed** — CreateOperator |
+| T28 terminal ticket step-up | **Aligned** — OpenAPI says as_root only |
+| T29 recorded field | **Documented** — always false until E4 |
+| T30 idle RSS | **Recorded** — report 78.8 vs 50; no silent tune |
+| T31 Caddy zero-drop | **Recorded** — unmet, assertion stays strict |
+| T32 stub() | **Kept** as laterPhase safety net |
+| T33 Module interface | **Kept** unused; ADR 0005 aspirational |
+| T34 NoCSRF | **Removed** |
+| T35 TOTP replay | **Documented** — in-memory 90s window intentional |
+| T36 sqlc scaffold | **Removed** |
+| T37 webhook_deliveries retention | **Fixed** — PruneDeliveries with logs.retention_days |
+| T38 monorepo fan-out | **Deferred** — single-target rule explicit |
+| T39 installer 7 artefacts | **Already done** in install.sh/Makefile |
+| T40 CODEPLO_URL refusal | **Kept** — preview domain ≠ template address |
+| T41 features/git path | **Corrected** in PROGRESS |
+| T42 open gaps index | **Added** to DECISIONS.md |
+| T43 go test -race | **Pending** (needs full suite run) |
 
 ## Handoff index (2026-10-21)
 

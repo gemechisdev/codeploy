@@ -5,13 +5,12 @@ LDFLAGS := -s -w -X github.com/codeplo/codeplo/internal/app.Version=$(VERSION) -
 
 .PHONY: gen lint test migrate-check build run web
 
-# gen: TS client types from openapi.yaml, later-phase route stubs (Go) from the same file, sqlc.
+# gen: TS client types from openapi.yaml, later-phase route stubs (Go) from the same file.
 # oapi-codegen generates models only (api/oapi-codegen.yaml); handlers are hand-written, see docs/DECISIONS.md.
 gen:
 	cd web && npm run gen:api
 	python3 scripts/gen_stubs.py
 	go generate ./internal/api/oapigen
-	@command -v sqlc >/dev/null && sqlc generate || echo "sqlc not installed; skipped (no queries yet)"
 
 lint:
 	go vet ./...

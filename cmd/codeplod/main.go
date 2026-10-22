@@ -182,7 +182,20 @@ func run() error {
 			},
 		})
 		srv.Deploy = eng
-		logSweep = func(c context.Context) error { _, err := eng.PruneLogs(c); return err }
+		logSweep = func(c context.Context) error {
+			if _, err := eng.PruneLogs(c); err != nil {
+				return err
+			}
+			// T37: same retention window as deployment logs for webhook delivery history.
+			if srv.Git != nil {
+				if n, err := srv.Git.PruneDeliveries(c); err != nil {
+					return err
+				} else if n > 0 {
+					slog.Info("pruned webhook deliveries", "count", n)
+				}
+			}
+			return nil
+		}
 		eng.Register(srv.Jobs) // handlers are a map the queue reads while running: register, then start
 		if err := eng.Recover(ctx); err != nil {
 			slog.Warn("deployment recovery incomplete; routes and containers may need reconciling", "err", err)
