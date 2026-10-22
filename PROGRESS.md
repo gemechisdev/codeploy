@@ -482,3 +482,21 @@ each other rather than repeating one another:
 - `docs/HANDOFF_NOTES.md` — observations: the gates that are trustworthy and what they do not prove, the Docker
   behaviours that changed code, the patterns this codebase expects, and what cost time.
 - `PROMPT.md` — the brief to hand the next agent, including the standing security and verification rules.
+
+## Agent session summary (2026-10-22)
+
+### Completed this session
+- **Group A T1–T5**: migrations apply, migrate-check, seeds, EXPLAIN plans, pr_previews no-FK survival
+- **Group C T27–T42**: first-run operator create, stub/NoCSRF/sqlc cleanup, TOTP/RSS/Caddy honesty, webhook
+  delivery retention, contract/docs alignment (T43 race full-tree still pending)
+- **Group B partial**: deploy states/redact/volumes, policy Enforce, git HMAC/MatchImage/CanonicalRepo,
+  templates classify/slogan
+
+### Still owed (cannot honestly mark done without more work or hardware)
+- **Group B** T6 full engine Run with fake Manager, T7 recovery, T11 clone/replay paths, T13–T15, T17–T26
+- **Group D** T44–T52 (real systemd/Docker/DNS/CI runners)
+- **Group E** T53–T62 (extensions/MCP contract + code + frontend)
+- **Group F/G** T63–T74 (release hardening, housekeeping)
+
+Commits on main ahead of origin: see `git log origin/main..HEAD`.
+
