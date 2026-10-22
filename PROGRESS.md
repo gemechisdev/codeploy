@@ -467,7 +467,8 @@ Group A (T1–T5) complete.
 | T10 volume confinement | **PASS** — RemoveVolumeDir rejects bad slug; removes under volumes root |
 | T11 git security | **Partial** — HMAC verify, SkipMarker, MatchImage; clone/replay path still owed |
 | T12 providers CanonicalRepo | **PASS** — ssh/https equivalence, path case-sensitive |
-| T13–T26 | **Unverified** |
+| T13–T15, T17–T26 | **Unverified** |
+| T16 templates parse refusals | **Partial** — slogan required; CODEPLO_URL/SERVICE_FQDN classify refuse |
 
 ## Handoff index (2026-10-21)
 
