@@ -456,6 +456,19 @@ Group A (T1–T5) complete.
 | T42 open gaps index | **Added** to DECISIONS.md |
 | T43 go test -race | **Pending** (needs full suite run) |
 
+### Group B progress
+
+| Task | Result |
+|---|---|
+| T6 engine state machine | **Partial** — states matrix unit-tested; full fake-Manager Run path still owed |
+| T7 boot recovery | **Unverified** — needs integration with DB+runtime fake |
+| T8 isolation policy | **PASS** — Enforce rejects privileged, host net, docker.sock, bad bind, extra caps; mints Approved for safe container |
+| T9 log redaction | **PASS** — Redactor longer-first + MinSecretLen; nil safe |
+| T10 volume confinement | **PASS** — RemoveVolumeDir rejects bad slug; removes under volumes root |
+| T11 git security | **Partial** — HMAC verify, SkipMarker, MatchImage; clone/replay path still owed |
+| T12 providers CanonicalRepo | **PASS** — ssh/https equivalence, path case-sensitive |
+| T13–T26 | **Unverified** |
+
 ## Handoff index (2026-10-21)
 
 This file records what is **built**. The remaining work lives in three new files, and the four documents cross-reference
