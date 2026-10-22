@@ -439,6 +439,7 @@ Group A (T1–T5) complete.
 | Task | Result |
 |---|---|
 | T27 `POST /setup/operator` mode=create | **Fixed** — `platform.CreateOperator` + handler; no more 501 on first-run path |
+| T32 unreachable `stub()` | **Decided** — kept as laterPhase safety net; comment + DECISIONS entry |
 
 ## Handoff index (2026-10-21)
 

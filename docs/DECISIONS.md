@@ -873,3 +873,10 @@ in `platform.CreateOperator`: `useradd -m`, sudo/wheel membership, and a single-
 requires root (installer/setup path); when the panel is not root the handler returns 403 with guidance to pick an
 existing sudo user. Invalid keys and usernames are 422. The mock already accepted create; the server matches it.
 
+## T32 — keep unreachable stub() as laterPhase safety net (2026-10-22)
+
+All 110 contract operations have real handlers, so `Server.stub` is currently unreachable. It is kept on purpose:
+generated `laterPhase` rows without an overriding handler still register through it and answer 501/module_disabled
+instead of a generic 404. Deleting it would change the failure mode of the next unfinished route. Comment on
+`stub` records this; no behaviour change.
+

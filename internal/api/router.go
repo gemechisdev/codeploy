@@ -281,7 +281,10 @@ func (s *Server) attach(r *http.Request) {
 	}
 }
 
-// stub serves a route owned by a later phase: 404 module_disabled when the module is off, else 501.
+// stub is the safety net for generated laterPhase routes that have no real handler yet.
+// Today every contract operation is implemented, so no request reaches this function; it stays so the
+// next phase's make gen output 501s as "known but pending" instead of falling through as an unknown 404.
+// Do not delete without also changing how laterPhase entries without handlers are registered.
 func (s *Server) stub(module string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.Reg.Enabled(r.Context(), module) {
