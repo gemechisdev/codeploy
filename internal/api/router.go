@@ -40,7 +40,6 @@ const Prefix = "/api/v1"
 type RouteDef struct {
 	Method, Path, Perm, Module string
 	Handler                    http.HandlerFunc
-	NoCSRF                     bool // setup-session routes (SameSite=Strict + setup cookie instead)
 }
 
 type Server struct {

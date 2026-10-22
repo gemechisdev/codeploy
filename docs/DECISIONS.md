@@ -880,3 +880,9 @@ generated `laterPhase` rows without an overriding handler still register through
 instead of a generic 404. Deleting it would change the failure mode of the next unfinished route. Comment on
 `stub` records this; no behaviour change.
 
+## T34 — remove unread RouteDef.NoCSRF (2026-10-22)
+
+`NoCSRF` was set only on setup routes that are already `authz.Public`. The guard skips CSRF for Public
+routes entirely, so the flag was never read. Removed the field and its assignments. CSRF remains required on
+every non-GET session request that is not an API token (existing behaviour, covered by TestSessionNonGETRequiresCSRF).
+
