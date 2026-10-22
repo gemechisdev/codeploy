@@ -20,6 +20,7 @@ import (
 	"github.com/codeplo/codeplo/internal/modules/deploy"
 	"github.com/codeplo/codeplo/internal/modules/deploy/builders"
 	"github.com/codeplo/codeplo/internal/modules/edge"
+	"github.com/codeplo/codeplo/internal/modules/extensions"
 	"github.com/codeplo/codeplo/internal/modules/git"
 	"github.com/codeplo/codeplo/internal/modules/git/providers"
 	"github.com/codeplo/codeplo/internal/modules/previews"
@@ -239,6 +240,15 @@ func run() error {
 			slog.Info("pull request previews are not naming anything", "reason", st.DomainNote)
 		}
 	}
+	// Extensions outbound delivery (T55): only attempts when extensions.outbound is on.
+	extSvc := extensions.New(db, key)
+	go everyMinute(ctx, "extension delivery", func(c context.Context) error {
+		n, err := extSvc.DeliverDue(c, 20)
+		if n > 0 {
+			slog.Info("extension deliveries sent", "count", n)
+		}
+		return err
+	})
 	go srv.Jobs.Run(ctx)
 	ops.startLoops(ctx, srv, srv.Jobs, func(name string, data any) { srv.Bus.Publish(name, data) }, logSweep)
 

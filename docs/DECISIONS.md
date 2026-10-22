@@ -946,3 +946,14 @@ Decisions already recorded for Group C items so they are not re-litigated:
 address to hand over at deploy time (the operator adds a domain after the resource exists). Keep the
 `classify` FillURL refusal; lifting it waits on a deliberate panel-domain-for-templates decision.
 
+## T53 — extensions/MCP without OpenAPI routes (2026-10-22)
+
+`api/openapi.yaml` has no surface for extensions or MCP, and `test/authz` enforces exact parity. Adding routes would
+force `make gen`, the authz matrix, and mock updates in the same commit for capabilities the plan can deliver as
+daemon-local loops plus CLI (same pattern as templates check and github-app check).
+
+Decision: **no new HTTP routes**. Extensions register via CLI/DB, receive HMAC-signed outbound events from the
+daemon job loop, and invoke actions with scoped hashed tokens checked through `internal/authz`. MCP runs as a
+flag-gated stdio/unix server in-process, using the same permission checks as the API. If product later needs a
+browser UI for extensions, that is a deliberate contract expansion, not a side effect of J4.
+

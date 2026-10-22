@@ -492,6 +492,9 @@ each other rather than repeating one another:
 - **Group B partial**: deploy states/redact/volumes, policy Enforce, git HMAC/MatchImage/CanonicalRepo,
   templates classify/slogan
 
+### Also implemented this session
+- Group E core: migration 0008, extensions + MCP packages, CLI, sample extension, Templates search, Extensions page
+
 ### Still owed (cannot honestly mark done without more work or hardware)
 - **Group B** T6 full engine Run with fake Manager, T7 recovery, T11 clone/replay paths, T13–T15, T17–T26
 - **Group D** T44–T52 (real systemd/Docker/DNS/CI runners)
@@ -499,4 +502,21 @@ each other rather than repeating one another:
 - **Group F/G** T63–T74 (release hardening, housekeeping)
 
 Commits on main ahead of origin: see `git log origin/main..HEAD`.
+
+### Group E progress (2026-10-22)
+
+| Task | Result |
+|---|---|
+| T53 contract decision | **Done** — no OpenAPI routes; CLI + daemon loops (DECISIONS) |
+| T54 migration 0008 | **Done** — extensions, tokens, subscriptions, deliveries |
+| T55 extensions package | **Done** — register, enqueue, HMAC deliver, dead letters |
+| T56 actions/scopes | **Done** — AuthorizeAction + InvokeAction |
+| T57 sample extension | **Done** — `test/extensions/sample_handler.go` |
+| T58 MCP server | **Done** — NDJSON tools list_projects/list_resources/trigger_deploy |
+| T59 module wiring | **Partial** — modules table seeds exist; delivery loop in codeplod; MCP stdio not auto-started |
+| T60 frontend | **Partial** — Extensions page + Templates search |
+| T61 preview UI | **Unverified** |
+| T62 live-mode frontend | **Unverified** |
+
+Migration head is now **8** (`TestMigrateAllToV8`).
 

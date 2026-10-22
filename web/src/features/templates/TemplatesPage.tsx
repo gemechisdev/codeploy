@@ -37,20 +37,25 @@ function DeployDialog({ tpl, onClose }: { tpl: Schema<'Template'>; onClose: () =
 
 export function TemplatesPage() {
   const q = useTemplates(); const { can } = usePermissions(); const [sel, setSel] = useState<Schema<'Template'> | null>(null);
+  const [qtext, setQtext] = useState('');
   return (
     <ModuleGate module="templates">
       <PageHeader title="Templates" description="One-click starting points. Each template becomes a normal resource you can edit." />
+      <div className="mb-3 max-w-sm"><Input placeholder="Search templates…" value={qtext} onChange={(e) => setQtext(e.target.value)} /></div>
       <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No templates available.</p>}>
-        {(d) => (
+        {(d) => {
+          const needle = qtext.trim().toLowerCase();
+          const items = needle ? d.items.filter((t) => [t.name, t.key, t.category, t.description].join(' ').toLowerCase().includes(needle)) : d.items;
+          return (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {d.items.map((t) => (
+            {items.map((t) => (
               <Card key={t.key}><CardBody className="flex h-full flex-col gap-2">
                 <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-sm font-bold text-primary"><Layers className="size-4 text-brand-primary" />{t.name}</span><Badge tone="brand">{t.category}</Badge></div>
                 <p className="flex-1 text-xs text-secondary">{t.description}</p>
                 <div className="flex items-center justify-between text-[11px] text-muted"><span>{t.kind} · :{t.default_port} · {t.recommended_memory_mb} MB</span>
                   <Button size="sm" disabled={!can('template:deploy')} title={can('template:deploy') ? undefined : 'Requires template:deploy'} onClick={() => setSel(t)}>Deploy</Button></div>
               </CardBody></Card>))}
-          </div>)}
+          </div>);}}
       </QueryBoundary>
       {sel && <DeployDialog tpl={sel} onClose={() => setSel(null)} />}
     </ModuleGate>

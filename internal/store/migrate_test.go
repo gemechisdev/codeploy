@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestMigrateAllToV7(t *testing.T) {
+func TestMigrateAllToV8(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codeplo_t1.db")
 	db, err := Open(path)
@@ -21,8 +21,8 @@ func TestMigrateAllToV7(t *testing.T) {
 	if err := db.QueryRow(`SELECT version_id FROM goose_db_version ORDER BY id DESC LIMIT 1`).Scan(&v); err != nil {
 		t.Fatalf("version query: %v", err)
 	}
-	if v != 7 {
-		t.Fatalf("expected goose_db_version=7, got %d", v)
+	if v != 8 {
+		t.Fatalf("expected goose_db_version=8, got %d", v)
 	}
 	t.Logf("goose_db_version=%d OK", v)
 }

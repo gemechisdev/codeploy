@@ -78,6 +78,7 @@ const terminal = page('/server/terminal', () => import('@/features/terminal/Term
 const proxy = page('/server/proxy', () => import('@/features/domains/ProxyPage'), 'ProxyPage');
 const monitoring = page('/server/monitoring', () => import('@/features/monitoring/MonitoringPage'), 'MonitoringPage');
 const templates = page('/templates', () => import('@/features/templates/TemplatesPage'), 'TemplatesPage');
+const extensions = page('/extensions', () => import('@/features/extensions/ExtensionsPage'), 'ExtensionsPage');
 const notifications = page('/notifications', () => import('@/features/notifications/NotificationsPage'), 'NotificationsPage');
 const backups = page('/backups', () => import('@/features/backups/BackupsPage'), 'BackupsPage');
 const settings = createRoute({
@@ -86,7 +87,7 @@ const settings = createRoute({
   component: lazyRouteComponent(() => import('@/features/settings/SettingsPage'), 'SettingsPage'),
 });
 
-const routeTree = root.addChildren([login, setup, app.addChildren([dashboard, projects, project, resource, security, terminal, proxy, monitoring, templates, notifications, backups, settings])]);
+const routeTree = root.addChildren([login, setup, app.addChildren([dashboard, projects, project, resource, security, terminal, proxy, monitoring, templates, extensions, notifications, backups, settings])]);
 
 export function createAppRouter(qc: QueryClient) {
   return createRouter({

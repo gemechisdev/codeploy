@@ -1,4 +1,4 @@
-import { Bell, Box, DatabaseBackup, LayoutDashboard, LineChart, Settings, ShieldCheck, Terminal, Globe, LayoutTemplate } from 'lucide-react';
+import { Bell, Box, DatabaseBackup, LayoutDashboard, LineChart, Settings, ShieldCheck, Terminal, Globe, LayoutTemplate, Puzzle } from 'lucide-react';
 import type { ElementType } from 'react';
 import type { Permission } from '@/api/types';
 
@@ -17,7 +17,7 @@ export const NAV: NavGroup[] = [
     ],
   },
   { label: null, items: [
-    { to: '/templates', label: 'Templates', icon: LayoutTemplate, module: 'templates', perm: 'template:deploy' },
+    { to: '/templates', label: 'Templates', icon: LayoutTemplate, Puzzle, module: 'templates', perm: 'template:deploy' },
     { to: '/notifications', label: 'Notifications', icon: Bell, module: 'notify', perm: 'notify:manage' },
     { to: '/backups', label: 'Backups', icon: DatabaseBackup, module: 'databases', perm: 'backup:manage' },
     { to: '/settings', label: 'Settings', icon: Settings },
