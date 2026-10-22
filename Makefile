@@ -16,6 +16,9 @@ lint:
 	go vet ./...
 	@command -v golangci-lint >/dev/null && golangci-lint run || echo "golangci-lint not installed; skipped"
 
+test-web:
+	cd web && npm test -- --run
+
 test:
 	go test ./...
 

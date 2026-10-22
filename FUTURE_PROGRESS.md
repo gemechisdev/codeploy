@@ -89,3 +89,8 @@ templates/git/monitoring/backups/previews.
 - A running service is shared state. Nothing destructive or write-bearing against a live or shared system without
   explicit per-action approval; no force-push, no history rewrite, no bare `git stash` / `git reset --hard`.
 - Verify the state, not the artifact — a compile says the code type-checks, nothing more.
+
+## Finalization 2026-10-22
+
+Implementation coverage landed for Groups A, C (minus full race), E (core), and partial B.
+Group D remains hardware-gated. P9 release pipeline not executed in this environment.

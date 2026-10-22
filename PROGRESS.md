@@ -520,3 +520,25 @@ Commits on main ahead of origin: see `git log origin/main..HEAD`.
 
 Migration head is now **8** (`TestMigrateAllToV8`).
 
+### Finalization pass (2026-10-22)
+
+| Item | Result |
+|---|---|
+| T19 Detect aliases | **Fixed** — exporters excluded; mirror-postgres matches |
+| T61 Previews UI | **Done** — dense CLI-oriented page + nav |
+| T67 operator guide draft | **Done** — `docs/site/operator-guide.md` |
+| T69 `make test-web` | **Done** — Makefile target |
+| T72 env list | **Done** — `docs/ENV.md` |
+| T74 P8 boundary | **Done** — DECISIONS |
+| T30/T31 honesty | **Done** — `docs/RELEASE_NOTES.md` |
+
+### Honest remaining (operator/CI/hardware)
+
+- T6/T7 full deploy engine Run fakes; T43 full race tree
+- T44–T52 real host matrix (Docker, DNS, CI runners)
+- T62 live-mode frontend pass against a real daemon
+- T63–T66 GoReleaser/cosign/arm64 CI
+- T68 a11y/i18n; T70 host cleanup; T71 gen idempotence in CI
+
+Operators: apply migration 0008 on upgrade; read `docs/ENV.md` and `docs/RELEASE_NOTES.md`.
+

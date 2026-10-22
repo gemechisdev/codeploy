@@ -957,3 +957,8 @@ daemon job loop, and invoke actions with scoped hashed tokens checked through `i
 flag-gated stdio/unix server in-process, using the same permission checks as the API. If product later needs a
 browser UI for extensions, that is a deliberate contract expansion, not a side effect of J4.
 
+## T74 — P8 boundary (2026-10-22)
+
+P8 is explicitly **out of scope** for the current checklist: agent mode, OIDC, passkeys, and additional Git
+providers. Do not start those features under P4–P7 task IDs. Track them in a future `FUTURE_TASKS` revision only.
+

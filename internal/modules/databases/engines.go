@@ -196,6 +196,10 @@ func Detect(imageRef string) (Engine, bool) {
 		last = repo[i+1:]
 	}
 	last = strings.ToLower(strings.TrimSuffix(last, ".docker"))
+	// Sidecar/exporter images often contain the engine name (postgresql-exporter) and must not match.
+	if strings.Contains(last, "exporter") {
+		return nil, false
+	}
 	for _, e := range enginesByName {
 		for _, alias := range engineAliases[e.Key()] {
 			if last == alias || strings.HasPrefix(last, alias+"-") || strings.HasSuffix(last, "-"+alias) {
