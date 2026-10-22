@@ -421,7 +421,7 @@ Still owed before any of this can be *claimed*, in the order the plan puts them:
 3. **P2b/P2c VM matrix**, CI on a runner, signed release artefacts (P9).
 
 
-## Group A / T1–T3 — migrations 0001–0007 proven (2026-10-21 / 2026-10-22)
+## Group A / T1–T5 — migrations 0001–0007 proven (2026-10-21 / 2026-10-22)
 
 | Check | Result |
 |---|---|
@@ -430,8 +430,9 @@ Still owed before any of this can be *claimed*, in the order the plan puts them:
 | `make migrate-check` / `scripts/migrate_check.sh` | Added; runs the unit test above, non-zero on failure |
 | `TestMigrateSeeds` (T3) | **PASS** — 13 settings keys, `git.preview_deploys` feature flag (disabled), 4 alert_rules presets (all disabled) present after migrate |
 | `TestQueryPlans` (T4) | **PASS** — `duePreviews` → `pr_previews_expiry`; `SeriesSince` → `metrics_samples_window`; `oldestPreviews` → UNIQUE autoindex on `(provider,parent_resource_id,number)`; `findSourceByRepo` NOT IN scans `pr_previews` (no index on `preview_resource_id`, acceptable at expected cardinality) |
+| `TestPreviewNoFK` (T5) | **PASS** — `PRAGMA foreign_keys=1`; DELETE parent and preview resources succeed; `pr_previews` row survives both; orphan query (sweep shape) returns the row |
 
-T5 (FK survival on pr_previews) remains open.
+Group A (T1–T5) complete.
 
 ## Handoff index (2026-10-21)
 

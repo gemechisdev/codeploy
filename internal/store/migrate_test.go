@@ -206,3 +206,90 @@ func TestQueryPlans(t *testing.T) {
 		"resource_sources",
 	)
 }
+
+// TestPreviewNoFK documents and proves the deliberate lack of FOREIGN KEY on
+// pr_previews (T5 / migration 0007): deleting a parent or preview resource must
+// succeed, the pr_previews row must survive, and the orphan query the sweep uses
+// must see it so reconciliation is not blocked by a cascade or a constraint error.
+func TestPreviewNoFK(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codeplo_t5.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := Migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Confirm the DSN actually enables foreign_keys (the whole point of the test).
+	var fk int
+	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+		t.Fatalf("pragma foreign_keys: %v", err)
+	}
+	if fk != 1 {
+		t.Fatalf("foreign_keys=%d, want 1 (DSN must enforce FKs)", fk)
+	}
+
+	mustExec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("exec: %v\nSQL: %s", err, q)
+		}
+	}
+	mustExec(`INSERT INTO projects(id, name, slug, created_at) VALUES ('prj_t5','t5','t5','1970-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO environments(id, project_id, name, created_at) VALUES ('env_t5','prj_t5','prod','1970-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO resources(id, environment_id, type, name, slug, config_json, created_at) VALUES
+		('res_parent','env_t5','app','parent','parent','{}','1970-01-01T00:00:00Z'),
+		('res_preview','env_t5','app','preview','preview','{}','1970-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO pr_previews(id, provider, parent_resource_id, preview_resource_id, number, head_ref, head_sha, hostname, created_at, updated_at, expires_at)
+		VALUES ('prv_t5','github','res_parent','res_preview',7,'feat','deadbeef','feat.preview.example',
+		'1970-01-01T00:00:00Z','1970-01-01T00:00:00Z','2099-01-01T00:00:00Z')`)
+
+	// Deleting the parent resource must succeed (no FK constraint error) and leave the preview row.
+	if _, err := db.Exec(`DELETE FROM resources WHERE id='res_parent'`); err != nil {
+		t.Fatalf("delete parent resource: %v (pr_previews must not FK-block this)", err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pr_previews WHERE id='prv_t5'`).Scan(&n); err != nil {
+		t.Fatalf("count after parent delete: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("pr_previews row vanished after parent delete (want 1, got %d) — CASCADE would be wrong here", n)
+	}
+
+	// Orphan query (same shape as previews.orphans) must see the row: parent is gone.
+	var orphanID string
+	err = db.QueryRow(`SELECT id FROM pr_previews p
+		WHERE (SELECT COUNT(*) FROM resources r WHERE r.id=p.preview_resource_id)=0
+		   OR (SELECT COUNT(*) FROM resources r WHERE r.id=p.parent_resource_id)=0
+		ORDER BY p.id LIMIT 1`).Scan(&orphanID)
+	if err != nil {
+		t.Fatalf("orphan query after parent delete: %v", err)
+	}
+	if orphanID != "prv_t5" {
+		t.Fatalf("orphan id=%q, want prv_t5", orphanID)
+	}
+
+	// Deleting the preview resource must also succeed and leave the pr_previews row for the sweep to reap.
+	if _, err := db.Exec(`DELETE FROM resources WHERE id='res_preview'`); err != nil {
+		t.Fatalf("delete preview resource: %v (pr_previews must not FK-block this)", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pr_previews WHERE id='prv_t5'`).Scan(&n); err != nil {
+		t.Fatalf("count after preview-resource delete: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("pr_previews row vanished after preview-resource delete (want 1, got %d)", n)
+	}
+	err = db.QueryRow(`SELECT id FROM pr_previews p
+		WHERE (SELECT COUNT(*) FROM resources r WHERE r.id=p.preview_resource_id)=0
+		   OR (SELECT COUNT(*) FROM resources r WHERE r.id=p.parent_resource_id)=0
+		ORDER BY p.id LIMIT 1`).Scan(&orphanID)
+	if err != nil {
+		t.Fatalf("orphan query after both deletes: %v", err)
+	}
+	if orphanID != "prv_t5" {
+		t.Fatalf("orphan id=%q after both deletes, want prv_t5", orphanID)
+	}
+}
