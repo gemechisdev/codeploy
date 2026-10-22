@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -104,4 +105,104 @@ func TestMigrateSeeds(t *testing.T) {
 			t.Errorf("alert_rules %s: enabled=%d want 0", a.id, en)
 		}
 	}
+}
+
+// TestQueryPlans asserts the indexes the code's hot reads actually use (T4).
+// Plans are checked for the presence of the intended index name; SQLite may
+// still choose a table scan when the table is empty, so we seed minimal rows.
+func TestQueryPlans(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codeplo_t4.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := Migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	mustExec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("seed: %v\nSQL: %s", err, q)
+		}
+	}
+	mustExec(`INSERT INTO projects(id, name, slug, created_at) VALUES ('prj_t4','t4','t4','1970-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO environments(id, project_id, name, created_at) VALUES ('env_t4','prj_t4','prod','1970-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO resources(id, environment_id, type, name, slug, config_json, created_at) VALUES
+		('res_parent','env_t4','app','parent','parent','{}','1970-01-01T00:00:00Z'),
+		('res_preview','env_t4','app','preview','preview','{}','1970-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO resource_sources(resource_id, kind, repo_url, branch) VALUES
+		('res_parent','public_git','https://github.com/acme/app.git','main'),
+		('res_preview','public_git','https://github.com/acme/app.git','feat')`)
+	mustExec(`INSERT INTO pr_previews(id, provider, parent_resource_id, preview_resource_id, number, head_ref, head_sha, hostname, created_at, updated_at, expires_at)
+		VALUES ('prv_1','github','res_parent','res_preview',1,'feat','abc','feat.preview.example',
+		'1970-01-01T00:00:00Z','1970-01-01T00:00:00Z','1970-01-02T00:00:00Z')`)
+	mustExec(`INSERT INTO metrics_samples(id, at, scope, ref_id) VALUES
+		('01ARZ3NDEKTSV4RRFFQ69G5FAV','1970-01-01T00:00:00Z','host',''),
+		('01ARZ3NDEKTSV4RRFFQ69G5FB0','1970-01-01T00:00:01Z','host','')`)
+
+	explain := func(sqlText string, args ...any) string {
+		t.Helper()
+		rows, err := db.Query("EXPLAIN QUERY PLAN "+sqlText, args...)
+		if err != nil {
+			t.Fatalf("explain: %v\nSQL: %s", err, sqlText)
+		}
+		defer rows.Close()
+		var parts []string
+		for rows.Next() {
+			var id, parent, notused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+				t.Fatalf("scan plan: %v", err)
+			}
+			parts = append(parts, detail)
+		}
+		return strings.Join(parts, " | ")
+	}
+	assertPlan := func(sqlText string, args []any, wantAny ...string) {
+		t.Helper()
+		got := explain(sqlText, args...)
+		for _, w := range wantAny {
+			if strings.Contains(got, w) {
+				t.Logf("OK %v → %s", wantAny, got)
+				return
+			}
+		}
+		t.Errorf("plan for %s\n  got:  %s\n  want any of: %v", sqlText, got, wantAny)
+	}
+
+	// duePreviews: expires_at<=? ORDER BY expires_at, id → pr_previews_expiry
+	assertPlan(
+		`SELECT id FROM pr_previews WHERE expires_at<=? ORDER BY expires_at, id LIMIT ?`,
+		[]any{"1970-01-03T00:00:00Z", 10},
+		"pr_previews_expiry",
+	)
+
+	// SeriesSince inner: scope=? AND ref_id=? AND id>? ORDER BY id DESC → metrics_samples_window
+	assertPlan(
+		`SELECT * FROM metrics_samples WHERE scope=? AND ref_id=? AND id>? ORDER BY id DESC LIMIT ?`,
+		[]any{"host", "", "01ARZ3NDEKTSV4RRFFQ69G5FAA", 240},
+		"metrics_samples_window",
+	)
+
+	// oldestPreviews filter: parent_resource_id=? — UNIQUE(provider,parent_resource_id,number)
+	// autoindex is preferred over the secondary pr_previews_parent index.
+	assertPlan(
+		`SELECT id FROM pr_previews WHERE provider='github' AND parent_resource_id=? ORDER BY expires_at, id LIMIT ?`,
+		[]any{"res_parent", 5},
+		"pr_previews_parent", "sqlite_autoindex_pr_previews",
+	)
+
+	// findSourceByRepo: PK scan of resource_sources + NOT IN over pr_previews.
+	// No index on preview_resource_id → SCAN pr_previews (acceptable at expected cardinality).
+	assertPlan(
+		`SELECT resource_id, repo_url FROM resource_sources
+			WHERE repo_url IS NOT NULL AND repo_url<>''
+			  AND resource_id NOT IN (SELECT preview_resource_id FROM pr_previews)
+			ORDER BY resource_id`,
+		nil,
+		"resource_sources",
+	)
 }

@@ -429,8 +429,9 @@ Still owed before any of this can be *claimed*, in the order the plan puts them:
 | Fresh `codeplod` boot with `CODEPLO_DATA_DIR` = empty temp dir | **PASS** — same migration log, creates `codeplo.db` + `master.key`, exits cleanly on SIGTERM (edge reconcile warns without Caddy, expected) |
 | `make migrate-check` / `scripts/migrate_check.sh` | Added; runs the unit test above, non-zero on failure |
 | `TestMigrateSeeds` (T3) | **PASS** — 13 settings keys, `git.preview_deploys` feature flag (disabled), 4 alert_rules presets (all disabled) present after migrate |
+| `TestQueryPlans` (T4) | **PASS** — `duePreviews` → `pr_previews_expiry`; `SeriesSince` → `metrics_samples_window`; `oldestPreviews` → UNIQUE autoindex on `(provider,parent_resource_id,number)`; `findSourceByRepo` NOT IN scans `pr_previews` (no index on `preview_resource_id`, acceptable at expected cardinality) |
 
-T4–T5 (index EXPLAIN, FK survival on pr_previews) remain open.
+T5 (FK survival on pr_previews) remains open.
 
 ## Handoff index (2026-10-21)
 
