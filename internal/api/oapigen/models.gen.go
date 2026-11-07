@@ -2632,14 +2632,14 @@ type PatchSettingsJSONRequestBody = Settings
 // CreateSetupAdminJSONRequestBody defines body for CreateSetupAdmin for application/json ContentType.
 type CreateSetupAdminJSONRequestBody = SetupAdminRequest
 
-// ResumeSetupJSONRequestBody defines body for ResumeSetup for application/json ContentType.
-type ResumeSetupJSONRequestBody = SetupResumeRequest
-
 // SetOperatorJSONRequestBody defines body for SetOperator for application/json ContentType.
 type SetOperatorJSONRequestBody = SetOperatorRequest
 
 // SetPanelDomainJSONRequestBody defines body for SetPanelDomain for application/json ContentType.
 type SetPanelDomainJSONRequestBody = PanelDomainRequest
+
+// ResumeSetupJSONRequestBody defines body for ResumeSetup for application/json ContentType.
+type ResumeSetupJSONRequestBody = SetupResumeRequest
 
 // VerifySetupTotpJSONRequestBody defines body for VerifySetupTotp for application/json ContentType.
 type VerifySetupTotpJSONRequestBody = TotpCodeRequest
