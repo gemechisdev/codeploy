@@ -3,12 +3,14 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -257,7 +259,7 @@ func resolveSource(from string, wantCosign bool) (string, func(), error) {
 		return "", nil, err
 	}
 	cleanup := func() { os.RemoveAll(tmp) }
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := newDownloadClient()
 	files := append(releaseAssets(), "checksums.txt")
 	if wantCosign {
 		files = append(files, "checksums.txt.sig", "checksums.txt.pem")
@@ -271,13 +273,61 @@ func resolveSource(from string, wantCosign bool) (string, func(), error) {
 	return tmp, cleanup, nil
 }
 
+// stallTimeout aborts a transfer that has delivered no bytes for this long. It replaces a fixed total timeout, which
+// fails a healthy but slow link (release binaries are several MB) while still catching a dead one.
+var stallTimeout = 60 * time.Second
+
+func newDownloadClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   20 * time.Second,
+		ResponseHeaderTimeout: 90 * time.Second,
+	}}
+}
+
+// idleReader resets the stall timer whenever data arrives.
+type idleReader struct {
+	r io.Reader
+	t *time.Timer
+}
+
+func (i idleReader) Read(p []byte) (int, error) {
+	n, err := i.r.Read(p)
+	if n > 0 {
+		i.t.Reset(stallTimeout)
+	}
+	return n, err
+}
+
 func downloadFile(client *http.Client, base, name, dir string) error {
 	u := strings.TrimRight(base, "/") + "/" + name
 	parsed, err := url.Parse(u)
 	if err != nil || parsed.Scheme != "https" {
 		return fmt.Errorf("refusing non-https download URL %q", u)
 	}
-	resp, err := client.Get(u)
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		fmt.Fprintf(os.Stderr, "downloading %s (attempt %d/3)\n", name, attempt)
+		if last = downloadOnce(client, u, name, dir); last == nil {
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "  failed: %v\n", last)
+		time.Sleep(time.Duration(attempt) * 2 * time.Second)
+	}
+	return last
+}
+
+func downloadOnce(client *http.Client, u, name, dir string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stall := time.AfterFunc(stallTimeout, cancel)
+	defer stall.Stop()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
@@ -285,12 +335,13 @@ func downloadFile(client *http.Client, base, name, dir string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: HTTP %d", name, resp.StatusCode)
 	}
+	stall.Reset(stallTimeout)
 	f, err := os.Create(filepath.Join(dir, name))
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if _, err := io.Copy(f, idleReader{r: resp.Body, t: stall}); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 	return nil

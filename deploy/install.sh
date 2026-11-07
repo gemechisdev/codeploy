@@ -13,6 +13,7 @@
 # checksums.txt is keyless-cosign signed by this repo's release workflow; when cosign is installed the
 # signature is checked automatically against that exact identity (set CODEPLO_REQUIRE_COSIGN=1 to make
 # it mandatory even when cosign is absent).
+# Slow or offline host: put every artefact in a directory and run `sudo CODEPLO_LOCAL_DIR=/path bash install.sh`.
 # This script needs bash (arrays + pipefail). The guard runs under dash too, so `sh install.sh` says why it stops.
 [ -n "${BASH_VERSION:-}" ] || { echo "this installer needs bash: bash install.sh" >&2; exit 2; }
 set -euo pipefail
@@ -63,10 +64,33 @@ fi
 ASSETS=("codeplod_linux_$ARCH" "codeplo_linux_$ARCH" checksums.txt codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket "codeplo-pty@.service")
 ASSET_RE=" (codeplod_linux_$ARCH|codeplo_linux_$ARCH|codeplod.service|codeplo-caddy.service|caddy-bootstrap.json|codeplo-pty.socket|codeplo-pty@.service)\$"
 
+# Offline / slow-link installs: CODEPLO_LOCAL_DIR points at a directory that already holds every release artefact
+# (download them with a browser or `curl -C -`, then run this script). The same checksum and signature checks apply.
+LOCAL_DIR=""
+if [ -n "${CODEPLO_LOCAL_DIR:-}" ]; then
+  LOCAL_DIR="$(cd "$CODEPLO_LOCAL_DIR" 2>/dev/null && pwd)" || { echo "CODEPLO_LOCAL_DIR is not a directory" >&2; exit 1; }
+  echo "  using local artefacts from $LOCAL_DIR (no download)" >&2
+fi
+# fetch NAME: copy from CODEPLO_LOCAL_DIR, or download with a progress bar, retries that resume a partial file, a
+# connect timeout, and an abort if the transfer stalls (under 1 byte/s for 60 s) so a dead link fails instead of hanging.
+fetch() {
+  local f="$1"
+  if [ -n "$LOCAL_DIR" ]; then
+    [ -f "$LOCAL_DIR/$f" ] || { echo "missing $LOCAL_DIR/$f" >&2; return 1; }
+    cp "$LOCAL_DIR/$f" "$f"
+    return
+  fi
+  curl -fL --proto '=https' --tlsv1.2 --retry 5 --retry-delay 3 --connect-timeout 20 \
+    --speed-limit 1 --speed-time 60 -C - --progress-bar -o "$f" "$BASE/$f"
+}
+
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
+n=0
 for f in "${ASSETS[@]}"; do
-  curl -fsSL --proto '=https' --tlsv1.2 -o "$f" "$BASE/$f"
+  n=$((n + 1))
+  echo "[$n/${#ASSETS[@]}] $f" >&2
+  fetch "$f" || { echo "download failed: $f (re-run to retry, or see CODEPLO_LOCAL_DIR in the header)" >&2; exit 1; }
 done
 # Signature over the checksum list (keyless cosign, signed by this repo's release workflow).
 # A verification FAILURE is always fatal; missing signature assets only downgrade to a warning when the
@@ -76,7 +100,7 @@ signed=0
 if command -v cosign >/dev/null 2>&1; then
   have_sig=1
   for f in checksums.txt.sig checksums.txt.pem; do
-    curl -fsSL --proto '=https' --tlsv1.2 -o "$f" "$BASE/$f" || have_sig=0
+    fetch "$f" 2>/dev/null || have_sig=0
   done
   if [ "$have_sig" = 1 ]; then
     cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
