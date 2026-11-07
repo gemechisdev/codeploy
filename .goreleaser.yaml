@@ -1,0 +1,42 @@
+version: 2
+
+# go:embed all:dist (internal/webui/embed.go) needs a built SPA before any Go build.
+# This hook also runs for `goreleaser build`, so the released binaries embed the current UI.
+before:
+  hooks:
+    - sh -c 'cd web && npm ci && npm run build && cd .. && rm -rf internal/webui/dist && mkdir -p internal/webui/dist && cp -r web/dist/. internal/webui/dist/ && touch internal/webui/dist/.gitkeep'
+
+builds:
+  - id: codeplod
+    main: ./cmd/codeplod
+    binary: codeplod
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/codeplo/codeplo/internal/app.Version={{ .Version }} -X github.com/codeplo/codeplo/internal/app.Commit={{ .ShortCommit }} -X github.com/codeplo/codeplo/internal/app.BuiltAt={{ .Date }}
+  - id: codeplo
+    main: ./cmd/codeplo
+    binary: codeplo
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/codeplo/codeplo/internal/app.Version={{ .Version }} -X github.com/codeplo/codeplo/internal/app.Commit={{ .ShortCommit }} -X github.com/codeplo/codeplo/internal/app.BuiltAt={{ .Date }}
+
+# deploy/install.sh downloads raw binaries named <name>_linux_<arch>, not tarballs.
+archives:
+  - format: binary
+    name_template: "{{ .Binary }}_linux_{{ .Arch }}"
+
+# The canonical checksums.txt (five static deploy assets + both arch binaries, GNU two-space
+# sha256sum) is produced by `make dist` / `make dist-pack` and published by release.yml.
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256

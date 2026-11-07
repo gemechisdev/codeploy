@@ -3,7 +3,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X github.com/codeplo/codeplo/internal/app.Version=$(VERSION) -X github.com/codeplo/codeplo/internal/app.Commit=$(COMMIT) -X github.com/codeplo/codeplo/internal/app.BuiltAt=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: gen lint test migrate-check build run web
+GEN_FILES := web/src/api/schema.d.ts internal/api/stubs_gen.go internal/api/oapigen/models.gen.go
+
+.PHONY: gen gen-check lint test test-web migrate-check build run web dist dist-pack
 
 # gen: TS client types from openapi.yaml, later-phase route stubs (Go) from the same file.
 # oapi-codegen generates models only (api/oapi-codegen.yaml); handlers are hand-written, see docs/DECISIONS.md.
@@ -11,6 +13,25 @@ gen:
 	cd web && npm run gen:api
 	python3 scripts/gen_stubs.py
 	go generate ./internal/api/oapigen
+
+# gen-check: explicit md5 idempotence + drift check for the three generated files.
+# Generate twice and compare hashes: fail if generation is non-deterministic or committed files are stale.
+gen-check:
+	@set -eu; \
+	before=$$(md5sum $(GEN_FILES)); \
+	$(MAKE) gen >/dev/null; \
+	first=$$(md5sum $(GEN_FILES)); \
+	$(MAKE) gen >/dev/null; \
+	second=$$(md5sum $(GEN_FILES)); \
+	if [ "$$before" != "$$first" ]; then \
+		echo "gen drift: committed files differ from 'make gen'; run make gen and commit" >&2; \
+		printf 'committed:\n%s\ngenerated:\n%s\n' "$$before" "$$first" >&2; exit 1; \
+	fi; \
+	if [ "$$first" != "$$second" ]; then \
+		echo "gen not idempotent: two runs produced different output" >&2; \
+		printf 'run 1:\n%s\nrun 2:\n%s\n' "$$first" "$$second" >&2; exit 1; \
+	fi; \
+	echo "gen: idempotent and no drift ($(GEN_FILES))"
 
 lint:
 	go vet ./...
@@ -22,10 +43,14 @@ test-web:
 test:
 	go test ./...
 
-# migrate-check: apply migrations 0001–0007 to a temp SQLite DB via store.Migrate and assert version 7.
-# Does not boot the daemon. Fails non-zero on any migration error (T1/T2).
+# migrate-check: full migration chain reaches v8. -v + the RUN guard makes a renamed/missing
+# test fail the target instead of silently passing with "no tests to run" (T1/T2).
 migrate-check:
-	go test -count=1 ./internal/store/ -run TestMigrateAllToV7
+	@set -euo pipefail; \
+	log=$$(mktemp); \
+	trap 'rm -f "$$log"' EXIT; \
+	go test -count=1 -v -run '^TestMigrateAllToV8$$' ./internal/store/ 2>&1 | tee "$$log"; \
+	grep -qE '^=== RUN[[:space:]]+TestMigrateAllToV8$$' "$$log" || { echo "migrate-check: TestMigrateAllToV8 did not run" >&2; exit 1; }
 
 web:
 	cd web && npm ci && npm run build
@@ -40,16 +65,20 @@ run:
 	CODEPLO_DATA_DIR=$${CODEPLO_DATA_DIR:-./.data} go run ./cmd/codeplod
 
 # dist: the exact artefact set deploy/install.sh downloads, plus the checksums.txt it verifies.
-# The GitHub release job is a P9 scaffold, so this target is the only producer until CI signs and publishes.
-# `sha256sum` output is GNU two-space with LF endings, which is what the installer's grep accepts (see DECISIONS.md).
+# sha256sum -t forces GNU two-space text output (otherwise MSYS prints binary-mode " *"); a single
+# arch still matches exactly 7 lines in the installer's grep -cE guard (both arch binaries present,
+# the five static assets once). dist-pack is split out so CI can reuse the packaging after one web build.
 DIST_ARCHS := amd64 arm64
 dist: web
+	$(MAKE) dist-pack
+
+dist-pack:
 	rm -rf dist && mkdir -p dist
 	@for a in $(DIST_ARCHS); do \
-		CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplod_linux_$a ./cmd/codeplod || exit 1; \
-		CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplo_linux_$a ./cmd/codeplo || exit 1; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplod_linux_$$a ./cmd/codeplod || exit 1; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplo_linux_$$a ./cmd/codeplo || exit 1; \
 	done
 	cp deploy/codeplod.service deploy/caddy/codeplo-caddy.service deploy/codeplo-pty.socket 'deploy/codeplo-pty@.service' dist/
 	cp deploy/caddy/bootstrap.json dist/caddy-bootstrap.json
-	cd dist && sha256sum codeplod_linux_* codeplo_linux_* codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket 'codeplo-pty@.service' > checksums.txt
-	@echo "dist/ contains $(shell ls dist | wc -l) files; upload all of them to the release for the installer to verify"
+	cd dist && sha256sum -t codeplod_linux_* codeplo_linux_* codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket 'codeplo-pty@.service' > checksums.txt
+	@echo "dist/ contains $$(ls dist | wc -l) files; upload all of them to the release for the installer to verify"

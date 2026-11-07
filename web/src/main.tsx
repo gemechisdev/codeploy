@@ -10,8 +10,11 @@ import { ApiError } from '@/api/errors';
 import { resetSession } from '@/api/session';
 import { installTransport } from '@/api/transport';
 import { ToastProvider } from '@/components/ui/toast';
+import { I18nProvider, t } from '@/i18n';
 import { ThemeProvider } from '@/lib/theme';
 import { createAppRouter } from './router';
+
+document.title = t('app.title');
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -40,7 +43,7 @@ setAuthHandlers({
 void installTransport().then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <ThemeProvider><ToastProvider><QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider></ToastProvider></ThemeProvider>
+      <I18nProvider><ThemeProvider><ToastProvider><QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider></ToastProvider></ThemeProvider></I18nProvider>
     </StrictMode>,
   );
 });

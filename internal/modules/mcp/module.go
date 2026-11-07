@@ -60,7 +60,7 @@ type rpcErr struct {
 // Serve reads NDJSON requests from r and writes responses to w until EOF.
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	if !s.Enabled(ctx) {
-		return fmt.Errorf("mcp module is disabled")
+		return ErrDisabled
 	}
 	dec := json.NewDecoder(r)
 	enc := json.NewEncoder(w)
@@ -71,6 +71,12 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 				return nil
 			}
 			return err
+		}
+		// Re-read the module/flag gate on every request. Disabling the module mid-connection then takes effect
+		// without a daemon restart, and the refusal is a real server-side message rather than a vanished endpoint.
+		if !s.Enabled(ctx) {
+			_ = enc.Encode(rpcRes{JSONRPC: "2.0", ID: req.ID, Error: &rpcErr{Code: -32000, Message: ErrDisabled.Error()}})
+			continue
 		}
 		res := s.dispatch(ctx, req)
 		if err := enc.Encode(res); err != nil {
@@ -132,7 +138,7 @@ func (s *Server) callTool(ctx context.Context, name string, args map[string]any)
 			return "", err
 		}
 		if s.ListProjects == nil {
-			return "[]", nil
+			return "", fmt.Errorf("list_projects is not available: its store is not wired")
 		}
 		items, err := s.ListProjects(ctx)
 		if err != nil {
@@ -145,7 +151,7 @@ func (s *Server) callTool(ctx context.Context, name string, args map[string]any)
 			return "", err
 		}
 		if s.ListResources == nil {
-			return "[]", nil
+			return "", fmt.Errorf("list_resources is not available: its store is not wired")
 		}
 		items, err := s.ListResources(ctx)
 		if err != nil {

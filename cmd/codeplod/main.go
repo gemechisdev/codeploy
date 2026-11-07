@@ -252,6 +252,14 @@ func run() error {
 	go srv.Jobs.Run(ctx)
 	ops.startLoops(ctx, srv, srv.Jobs, func(name string, data any) { srv.Bus.Publish(name, data) }, logSweep)
 
+	// MCP (T59): a flag-gated, daemon-local unix socket (T53: no HTTP route). The listener and its connections are
+	// tied to the daemon context inside startMCP; the defer removes the socket on clean shutdown.
+	mcpPath, err := startMCP(ctx, cfg, db, srv)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(mcpPath)
+
 	if tok, issued, err := app.EnsureSetupToken(ctx, db); err != nil {
 		return err
 	} else if issued {

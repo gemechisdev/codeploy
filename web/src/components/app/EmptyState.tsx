@@ -5,7 +5,7 @@ import { ApiError } from '@/api/errors';
 
 export function EmptyState({ icon: Icon = Inbox, title, children, action }: { icon?: ElementType; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
+    <div role="status" aria-live="polite" className="flex flex-col items-center gap-2 px-6 py-10 text-center">
       <div className="rounded-xl bg-surface-muted p-3 text-muted"><Icon aria-hidden className="size-5" /></div>
       <p className="text-sm font-bold text-primary">{title}</p>
       {children && <p className="max-w-md text-xs text-muted">{children}</p>}

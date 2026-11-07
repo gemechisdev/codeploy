@@ -52,10 +52,15 @@ All daemon configuration is `CODEPLO_*`. Defaults match a typical install under 
 
 ## Installer / release
 
+Shared by `install.sh` and `codeplo update` / `codeplo rollback`. `codeplo update` also reads `CODEPLO_DATA_DIR`
+for the backup directory `<data-dir>/update-backups/<stamp>/`.
+
 | Variable | Purpose |
 |---|---|
-| `CODEPLO_VERSION` | Release tag for `install.sh` |
-| `CODEPLO_REQUIRE_COSIGN` | Require cosign verify when set |
+| `CODEPLO_VERSION` | Release tag for `install.sh`; also labels a `codeplo update` backup |
+| `CODEPLO_BASE_URL` | Override the release artefact base URL (https only) |
+| `CODEPLO_REQUIRE_COSIGN` | Require cosign verification when `1` |
+| `CODEPLO_COSIGN_IDENTITY` | Certificate identity regexp for cosign |
 | `CODEPLO_COSIGN_ISSUER` | OIDC issuer for cosign |
 
 Hardening spool: `CODEPLO_REVERT_DIR` (default `$DATA_DIR/revert`).

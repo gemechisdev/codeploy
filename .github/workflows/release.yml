@@ -1,10 +1,55 @@
-# SCAFFOLD (P9): GoReleaser build + cosign signing are not wired yet.
 name: release
 on:
-  push: { tags: ['v*'] }
+  push:
+    tags: ['v*']
+permissions:
+  id-token: write
+  contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "scaffold only: add goreleaser + cosign in P9" && exit 1
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Build web bundle (and stage it for go:embed)
+        run: |
+          make web
+          rm -rf internal/webui/dist && mkdir -p internal/webui/dist
+          cp -r web/dist/. internal/webui/dist/
+          touch internal/webui/dist/.gitkeep
+      # before.hooks in .goreleaser.yaml also build web + copy, so this builds both binaries for
+      # linux/amd64 + arm64 with CGO_ENABLED=0, -trimpath and the Makefile's version ldflags.
+      - name: GoReleaser multi-arch build
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: build --clean
+      # Produces the exact artefact set deploy/install.sh downloads, plus the 9-line checksums.txt
+      # (both arch binaries + five static assets) in GNU two-space sha256sum format.
+      - name: Assemble installer artefacts and checksums.txt
+        run: make dist-pack
+      - uses: sigstore/cosign-installer@v3
+      - name: Keyless-sign checksums.txt (OIDC identity pinned)
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/checksums.txt.sig \
+            --output-certificate dist/checksums.txt.pem \
+            dist/checksums.txt
+          # Exact identity assertion: the signature is only valid for this repo's release workflow
+          # on this tag, which is what the installer pins via CODEPLO_COSIGN_IDENTITY.
+          cosign verify-blob \
+            --certificate dist/checksums.txt.pem \
+            --signature dist/checksums.txt.sig \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/checksums.txt
+      - name: Upload all assets to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --title "$GITHUB_REF_NAME"

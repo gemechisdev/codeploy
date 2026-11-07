@@ -1,3 +1,4 @@
+import * as RD from '@radix-ui/react-dialog';
 import { Outlet } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useState } from 'react';
@@ -5,6 +6,7 @@ import { connectEvents } from '@/api/events';
 import { useMe } from '@/api/hooks/auth';
 import { DeadManBanner } from '@/components/app/DeadManBanner';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { useT } from '@/i18n';
 import { CommandPalette } from './CommandPalette';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -13,6 +15,7 @@ import { Sidebar } from './Sidebar';
 const DemoToolbar = import.meta.env.VITE_API_MODE === 'mock' ? lazy(() => import('@/mock/DemoToolbar')) : null;
 
 export function AppShell() {
+  const t = useT();
   const qc = useQueryClient();
   const me = useMe();
   const [drawer, setDrawer] = useState(false);
@@ -25,18 +28,22 @@ export function AppShell() {
   }, []);
   return (
     <div className="min-h-screen lg:pl-60">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-lg focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-xs focus:text-white">Skip to content</a>
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-lg focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-xs focus:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">{t('shell.skipToContent')}</a>
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 border-r border-subtle lg:block"><Sidebar /></aside>
-      {drawer && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <button aria-label="Close navigation" className="absolute inset-0 bg-black/50" onClick={() => setDrawer(false)} />
-          <div className="absolute inset-y-0 left-0 w-64 border-r border-subtle shadow-xl"><Sidebar onNavigate={() => setDrawer(false)} /></div>
-        </div>
-      )}
+      <RD.Root open={drawer} onOpenChange={setDrawer}>
+        <RD.Portal>
+          <RD.Overlay className="fixed inset-0 z-50 bg-black/50 lg:hidden" />
+          <RD.Content className="fixed inset-y-0 left-0 z-50 w-64 border-r border-subtle bg-surface shadow-xl focus:outline-none lg:hidden">
+            <RD.Title className="sr-only">{t('shell.navigation')}</RD.Title>
+            <RD.Description className="sr-only">{t('shell.navigationDescription')}</RD.Description>
+            <Sidebar onNavigate={() => setDrawer(false)} />
+          </RD.Content>
+        </RD.Portal>
+      </RD.Root>
       <Header onMenu={() => setDrawer(true)} onPalette={() => setPalette(true)} />
-      {me.data?.bootstrap && <div role="status" className="border-b border-brand-primary/30 bg-brand-primary/10 px-4 py-2 text-center text-xs text-brand-primary">Bootstrap session (SSH tunnel). Configure HTTPS in Settings to serve the panel on a domain.</div>}
+      {me.data?.bootstrap && <div role="status" className="border-b border-brand-primary/30 bg-brand-primary/10 px-4 py-2 text-center text-xs text-brand-primary">{t('shell.bootstrap')}</div>}
       <DeadManBanner />
-      <main id="main" className="mx-auto w-full max-w-7xl p-3 sm:p-5"><Suspense fallback={<SkeletonRows rows={6} />}><Outlet /></Suspense></main>
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-7xl p-3 sm:p-5"><Suspense fallback={<SkeletonRows rows={6} />}><Outlet /></Suspense></main>
       <CommandPalette open={palette} onOpenChange={setPalette} />
       {DemoToolbar && <Suspense fallback={null}><DemoToolbar /></Suspense>}
     </div>

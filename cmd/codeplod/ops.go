@@ -7,7 +7,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,10 +20,13 @@ import (
 	"github.com/codeplo/codeplo/internal/jobs"
 	"github.com/codeplo/codeplo/internal/modules/cron"
 	"github.com/codeplo/codeplo/internal/modules/databases"
+	"github.com/codeplo/codeplo/internal/modules/deploy"
+	"github.com/codeplo/codeplo/internal/modules/mcp"
 	"github.com/codeplo/codeplo/internal/modules/monitor"
 	"github.com/codeplo/codeplo/internal/modules/notify"
 	"github.com/codeplo/codeplo/internal/modules/runtime"
 	"github.com/codeplo/codeplo/internal/objectstore"
+	"github.com/codeplo/codeplo/internal/store"
 )
 
 // opsServices holds the operations services once they exist. A nil field means its module is switched off, which is
@@ -245,4 +251,157 @@ func settingInt(ctx context.Context, db *sql.DB, key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// ---- MCP (T59): a flag-gated, daemon-local NDJSON JSON-RPC host on a unix socket ----
+//
+// T53 forbids new OpenAPI routes, so MCP is a unix socket the daemon owns, not an HTTP path. The socket is created
+// once and kept regardless of the module flag: the flag is re-read on every connection (and every request inside a
+// connection) so an operator enabling "mcp" / "mcp.server" takes effect without a daemon restart, and disabling it
+// makes the server refuse with a message rather than disappear.
+
+type mcpDeps struct {
+	db   *sql.DB
+	base *mcp.Server // the tool closures and DB; CheckPerm is bound per connection
+}
+
+// newMCP builds the tool host with closures over the daemon's real stores and services. A closure is left nil when
+// its dependency is genuinely unavailable, so the tool answers "not available" instead of faking an empty success.
+func newMCP(db *sql.DB, srv *api.Server) *mcp.Server {
+	s := mcp.New(db)
+	s.ListProjects = func(ctx context.Context) ([]map[string]string, error) {
+		// Same SELECT (api.Server).listProjects uses.
+		rows, err := db.QueryContext(ctx, `SELECT id, name, slug, description, created_at FROM projects ORDER BY id`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []map[string]string
+		for rows.Next() {
+			var id, name, slug, desc, created string
+			if err := rows.Scan(&id, &name, &slug, &desc, &created); err != nil {
+				return nil, err
+			}
+			out = append(out, map[string]string{"id": id, "name": name, "slug": slug, "description": desc, "created_at": created})
+		}
+		return out, rows.Err()
+	}
+	s.ListResources = func(ctx context.Context) ([]map[string]string, error) {
+		// Same FROM/JOIN and leading columns (api.Server).listResources uses. The computed status CASE is the
+		// handler's business logic, so this reader returns stored columns instead of duplicating it.
+		rows, err := db.QueryContext(ctx, `SELECT r.id, r.environment_id, e.project_id, e.name, r.type, r.name, r.slug, r.desired_state, r.created_at FROM resources r JOIN environments e ON e.id=r.environment_id ORDER BY r.id`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []map[string]string
+		for rows.Next() {
+			var id, envID, projID, envName, typ, name, slug, desired, created string
+			if err := rows.Scan(&id, &envID, &projID, &envName, &typ, &name, &slug, &desired, &created); err != nil {
+				return nil, err
+			}
+			out = append(out, map[string]string{"id": id, "environment_id": envID, "project_id": projID,
+				"environment_name": envName, "type": typ, "name": name, "slug": slug, "desired_state": desired, "created_at": created})
+		}
+		return out, rows.Err()
+	}
+	// The deploy engine is the real service behind a deploy. It exists only with the deploy module on and a runtime
+	// wired; without it TriggerDeploy stays nil and the tool reports "deploy is not available".
+	if eng := srv.Deploy; eng != nil {
+		s.TriggerDeploy = func(ctx context.Context, resourceID string) (string, error) {
+			var cfgJSON string
+			if err := db.QueryRowContext(ctx, `SELECT config_json FROM resources WHERE id=?`, resourceID).Scan(&cfgJSON); err != nil {
+				return "", err
+			}
+			cfg, err := deploy.ParseConfig(cfgJSON)
+			if err != nil {
+				return "", err
+			}
+			mode := cfg.Image.Mode
+			imageRef := ""
+			if mode == "pull" && cfg.Image.Ref != nil {
+				imageRef = *cfg.Image.Ref
+			}
+			var branch sql.NullString
+			if mode == "build" {
+				// Same source query (api.Server).createDeployment uses for a build.
+				_ = db.QueryRowContext(ctx, `SELECT branch FROM resource_sources WHERE resource_id=?`, resourceID).Scan(&branch)
+			}
+			if v, err := eng.CheckPolicy(ctx, resourceID); err != nil {
+				return "", err
+			} else if len(v) > 0 {
+				return "", errors.New("isolation policy rejected this resource")
+			}
+			var depID string
+			// Reuse the engine's own Create (the same call the deployment handler makes) rather than
+			// re-implementing deployment creation. store.InTx matches the handler's transaction boundary.
+			err = store.InTx(ctx, db, func(tx *sql.Tx) error {
+				var e error
+				depID, e = eng.Create(ctx, tx, srv.Jobs, deploy.NewDeployment{
+					ResourceID: resourceID, Trigger: deploy.TrManual, Mode: mode, Branch: branch.String, ImageRef: imageRef,
+				})
+				return e
+			})
+			return depID, err
+		}
+	}
+	return s
+}
+
+// startMCP creates the 0600 unix socket under the data dir and supervises connections until ctx is cancelled.
+func startMCP(ctx context.Context, cfg config.Config, db *sql.DB, srv *api.Server) (string, error) {
+	path := mcp.SocketPath(cfg.DataDir)
+	_ = os.Remove(path) // a stale socket left by a crashed daemon
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return path, err
+	}
+	// 0600: only the service user that owns the daemon (and therefore the socket) can connect.
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = ln.Close()
+		return path, err
+	}
+	d := &mcpDeps{db: db, base: newMCP(db, srv)}
+	// Close the listener on shutdown so Accept unblocks and the accept loop exits (no goroutine leak).
+	context.AfterFunc(ctx, func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go d.serve(ctx, c)
+		}
+	}()
+	slog.Info("mcp server", "socket", path, "enabled", d.base.Enabled(ctx))
+	return path, nil
+}
+
+func (d *mcpDeps) serve(ctx context.Context, conn net.Conn) {
+	defer conn.Close()
+	// On shutdown, close this connection so a blocking decode in Serve returns and the goroutine exits.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+
+	// Gate re-read at accept time: enable/disable takes effect on the next connection, no restart.
+	if !d.base.Enabled(ctx) {
+		fmt.Fprintln(conn, "mcp: refused - the mcp module or the mcp.server feature flag is disabled")
+		return
+	}
+	// Bind this connection to a principal from the token read at accept time. No token (or an invalid one) means
+	// no principal, and the connection is refused with a sentence that never includes the token itself.
+	perms, err := mcp.ResolvePrincipal(ctx, d.db, os.Getenv(mcp.TokenEnv))
+	if err != nil {
+		fmt.Fprintln(conn, "mcp: refused - "+err.Error())
+		return
+	}
+	s := *d.base // a shallow copy: tool closures are shared, CheckPerm is per connection
+	s.CheckPerm = mcp.Checker(perms)
+	if err := s.Serve(ctx, conn, conn); err != nil {
+		if errors.Is(err, mcp.ErrDisabled) {
+			fmt.Fprintln(conn, "mcp: refused - the mcp module was disabled")
+		} else {
+			slog.Debug("mcp connection ended", "err", err)
+		}
+	}
 }

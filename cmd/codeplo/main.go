@@ -32,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | extensions list|register|dead|check | github-app check|repos | pty-helper (systemd only)")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | extensions list|register|dead|check | github-app check|repos | update [--from DIR] [--bin-dir DIR] | rollback [--stamp STAMP] | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -71,6 +71,14 @@ func run(cmd string, args []string) error {
 	// before the shared flag set like the other reader commands.
 	if cmd == "previews" {
 		return previewsCommand(args)
+	}
+	// update and rollback own their flags and the release artefacts on the host; neither needs the data directory
+	// opened by the shared path below (update opens the database itself for the VACUUM INTO snapshot).
+	if cmd == "update" {
+		return updateCommand(args)
+	}
+	if cmd == "rollback" {
+		return rollbackCommand(args)
 	}
 	cfg, err := config.Load()
 	if err != nil {

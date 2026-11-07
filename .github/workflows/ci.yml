@@ -10,6 +10,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
       - run: pip install pyyaml
+      - name: install web deps
+        run: cd web && npm ci
       - name: lint
         run: make lint
       - name: test (includes the authz matrix in test/authz)
@@ -18,11 +20,21 @@ jobs:
         run: go test ./test/authz/... -run TestEveryRouteDeclaresOnePermission -count=1
       - name: OpenAPI vs generated drift check
         run: |
-          make gen
+          make gen-check
           git diff --exit-code -- web/src/api/schema.d.ts internal/api/stubs_gen.go internal/api/oapigen
           test -z "$(git status --porcelain -- internal/api/oapigen)"
       - name: build (embeds web/dist)
         run: make build
+  # T66: native arm64 runner (available on public repos). For private repos use docker/setup-qemu-action
+  # + buildx to run the same commands under a linux/arm64 QEMU container.
+  go-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go test ./...
+      - run: GOARCH=arm64 CGO_ENABLED=0 go build ./...
   web:
     runs-on: ubuntu-latest
     steps:
