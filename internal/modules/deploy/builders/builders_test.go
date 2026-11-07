@@ -1,8 +1,12 @@
 package builders
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,21 +66,65 @@ func TestBuildArgsUseSecretMountsNeverBuildArgs(t *testing.T) {
 }
 
 func TestDockerConfigIsEphemeralAndPrivate(t *testing.T) {
-	c := &CLI{TmpDir: t.TempDir()}
-	dir, err := c.writeDockerConfig(&RegistryAuth{Server: "ghcr.io", Username: "u", Password: "pw"})
+	const secret = "s3cr3t-registry-token"
+	root := t.TempDir()
+	c := &CLI{TmpDir: root}
+	dir, err := c.writeDockerConfig(&RegistryAuth{Server: "ghcr.io", Username: "u", Password: secret})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if filepath.Dir(dir) != root {
+		t.Fatalf("credential dir %q must live under the configured TmpDir %q", dir, root)
 	}
 	st, err := os.Stat(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Mode().Perm() != 0o700 {
+	if !st.IsDir() {
+		t.Fatal("DOCKER_CONFIG must be a directory")
+	}
+	// Windows has no POSIX permission bits: os.MkdirTemp / os.WriteFile report
+	// 0777 / 0666 there regardless of the requested mode, and os.Chmod only
+	// toggles the read-only attribute. The daemon's deploy target is Linux, where
+	// 0700 / 0600 are real; assert them on POSIX hosts and say plainly that the
+	// Windows run does not prove them (see docs/site/verification-matrix.md).
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o700 {
 		t.Fatalf("DOCKER_CONFIG dir must be 0700, is %v", st.Mode().Perm())
 	}
-	fi, _ := os.Stat(filepath.Join(dir, "config.json"))
-	if fi.Mode().Perm() != 0o600 {
+	cfgPath := filepath.Join(dir, "config.json")
+	fi, err := os.Stat(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("config.json must be 0600, is %v", fi.Mode().Perm())
+	}
+	// Platform-independent proof: the credential is sealed into the file, never
+	// left in plaintext and never handed to a build process through its environment.
+	b, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte(secret)) {
+		t.Fatal("plaintext registry password leaked into config.json")
+	}
+	var cfg struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(cfg.Auths["ghcr.io"].Auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded) != "u:"+secret {
+		t.Fatalf("unexpected sealed auth: %q", decoded)
+	}
+	if strings.Contains(strings.Join(c.baseEnv(dir), "\x00"), secret) {
+		t.Fatal("registry password leaked into the build environment")
 	}
 	_ = os.RemoveAll(dir)
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {

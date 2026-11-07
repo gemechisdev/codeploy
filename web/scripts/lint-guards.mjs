@@ -13,15 +13,22 @@ const rel = (f) => relative(SRC, f).replaceAll('\\', '/');
 const isTest = (f) => /__tests__|\.test\./.test(f);
 const inMock = (f) => rel(f).startsWith('mock/');
 const inApi = (f) => rel(f).startsWith('api/') && !rel(f).startsWith('api/schema');
+// Guards are about executable UI source. JSDoc in the generated api/schema.d.ts is
+// copied verbatim from api/openapi.yaml and legitimately documents loopback
+// bindings ("127.0.0.1 only, never 0.0.0.0"). That file is pure declarations, not
+// UI code, so the hard-coded-address rule must not fail a drift-free regeneration.
+// It stays subject to every other guard (notably "no reveal for secrets").
+const isGeneratedContract = (f) => rel(f) === 'api/schema.d.ts';
+const codeOnly = (s) => s.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 const fails = [];
 const rules = [
-  ['no "reveal" for secrets', (f, s) => !isTest(f) && !inMock(f) && /\breveal(Secret|ed)?\b/i.test(s.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')) && 'secrets are write-only: no reveal'],
+  ['no "reveal" for secrets', (f, s) => !isTest(f) && !inMock(f) && /\breveal(Secret|ed)?\b/i.test(codeOnly(s)) && 'secrets are write-only: no reveal'],
   ['localStorage only for the theme key', (f, s) => !isTest(f) && !inMock(f) && [...s.matchAll(/localStorage\.\w+\(\s*([^,)]*)/g)].some((m) => !/THEME_KEY|codeplo_theme/.test(m[1])) && 'localStorage may only hold the theme'],
   ['no dangerouslySetInnerHTML', (f, s) => !isTest(f) && /dangerouslySetInnerHTML/.test(s) && 'dangerouslySetInnerHTML is forbidden'],
   ['no eval / new Function', (f, s) => !isTest(f) && /(^|[^.\w])eval\s*\(|new Function\s*\(/.test(s) && 'eval/new Function is forbidden (strict CSP)'],
   ['no fetch( outside src/api and src/mock', (f, s) => !isTest(f) && !inApi(f) && !inMock(f) && /(^|[^.\w])fetch\s*\(/.test(s) && 'use the typed API client, never raw fetch'],
   ['no appendAudit outside the mock server', (f, s) => !isTest(f) && !inMock(f) && /appendAudit/.test(s) && 'the client never writes audit rows'],
-  ['no hard-coded emails/IPs outside mock', (f, s) => !isTest(f) && !inMock(f) && !inApi(f) && /[\w.-]+@[\w-]+\.(com|org|io|dev)\b|\b\d{1,3}(\.\d{1,3}){3}\b/.test(s.replace(/placeholder="[^"]*"/g, '')) && 'no hard-coded emails or IP addresses in UI code'],
+  ['no hard-coded emails/IPs outside mock', (f, s) => !isTest(f) && !inMock(f) && !inApi(f) && !isGeneratedContract(f) && /[\w.-]+@[\w-]+\.(com|org|io|dev)\b|\b\d{1,3}(\.\d{1,3}){3}\b/.test(s.replace(/placeholder="[^"]*"/g, '')) && 'no hard-coded emails or IP addresses in UI code'],
   ['no prefilled demo credentials in UI', (f, s) => !isTest(f) && !inMock(f) && /123456|SecurePassw0rd|demo-password/.test(s) && 'no prefilled secrets in UI source'],
 ];
 for (const f of files) {
