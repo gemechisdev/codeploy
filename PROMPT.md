@@ -1,5 +1,12 @@
 # PROMPT.md — hand this to the next agent
 
+> **Status note (2026-11-07):** this brief was written when J4 extensions / J7 MCP were missing and P4–P7 had no
+> executed tests. Both are no longer true: extensions and MCP landed (T53–T59), a P4–P7 real-router test suite
+> exists, and the local + CI gates described below have been run. Read `FUTURE_PROGRESS.md` §1 and
+> `docs/site/verification-matrix.md` **before** acting on the brief below; what remains is host/runner verification,
+> not the backend implementation work this prompt asks for. The standing rules below (never weaken a test, never
+> report an unrun check as a pass) still apply unchanged.
+
 Copy everything below the line into a fresh session in this repository. It is self-contained: it tells the agent what
 state the code is in, what to do first, and what it must never do. Task IDs (`T1`–`T74`) refer to `FUTURE_TASKS.md`.
 

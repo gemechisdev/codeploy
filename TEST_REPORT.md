@@ -1,5 +1,10 @@
 # TEST REPORT — codeplo backend, P0 / P1 / P2a tester pass
 
+> **Status note (2026-11-07):** this is a historical 2026-10-20 report of a deliberately scoped tester pass. Its
+> "CI pipeline NOT RUN" row and P2a NOT RUN rows describe that moment. CI, the full race tree, the generated-drift
+> check and the frontend gates have since been executed; see `PROGRESS.md` "Finalization pass (2026-11-07)" and
+> `docs/site/verification-matrix.md`. Nothing below has been silently upgraded to a pass.
+
 Date: 2026-10-20. Scope: verify the written-but-never-run tree against the P0/P1/P2a
 test mandate: build, tests, authz matrix, mock-vs-implementation diff, security tests,
 binary behaviours, frontend contract run, RSS, spikes, installer, exit criteria.

@@ -4,6 +4,13 @@ Written 2026-10-21 by the agent that built P4–P7's backend under "code only, c
 `FUTURE_PROGRESS.md` for the map, `FUTURE_TASKS.md` for the list, this file for the texture — the things that are not
 visible from a diff and that would otherwise cost the next agent a day.
 
+> **Status note (2026-11-07):** the "no tests have run" statements below describe 2026-10-21. Since then migrations
+> 0001–0008 have been applied by the real goose path, the full race tree has passed, and a P4–P7 real-router suite
+> exists. §1's claim that `go test -race` "has not been run since the P3 gate" and §2's claim that 0006/0007 have
+> "never met a database" are both **superseded**. The behavioural rules in this file (refusal leaves nothing written,
+> write + audit in one transaction, nil dependency means unavailable, secrets write-only, new capability behind an
+> existing seam) remain the standing contract and were what the new tests assert.
+
 ## 1. Gates you can trust, and what they do not prove
 
 Reliable and fast on this machine (Windows, Git Bash):
