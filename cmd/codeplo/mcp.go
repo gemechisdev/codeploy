@@ -1,13 +1,7 @@
 // The `codeplo mcp` commands: read-only state of the daemon-local MCP endpoint (T53/T59).
 //
-// MCP has no HTTP route, so an operator's only view of it is this host-side check. cmd/codeplo/main.go is owned by
-// a parallel agent (out of our file scope); wiring the command is that one line in run():
-//
-//	if cmd == "mcp" {
-//		return mcpCommand(args)
-//	}
-//
-// This file defines only the command itself.
+// MCP has no HTTP route, so an operator's only view of it is this host-side check. run() in cmd/codeplo/main.go
+// dispatches "mcp" here; this file defines only the command itself.
 package main
 
 import (

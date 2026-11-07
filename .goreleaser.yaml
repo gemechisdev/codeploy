@@ -6,10 +6,19 @@ before:
   hooks:
     - sh -c 'cd web && npm ci && npm run build && cd .. && rm -rf internal/webui/dist && mkdir -p internal/webui/dist && cp -r web/dist/. internal/webui/dist/ && touch internal/webui/dist/.gitkeep'
 
+# `goreleaser build --clean` writes the binaries straight into dist/ under the exact names
+# deploy/install.sh downloads. no_unique_dist_dir + a templated binary name avoid GoReleaser's
+# per-target subdirectories, so `make dist-pack` can package THESE binaries instead of
+# rebuilding them (release.yml passes DIST_FROM_GORELEASER=1).
+# Archives and GoReleaser's own checksum file are deliberately absent: `goreleaser build`
+# produces binaries only, and the installer wants raw binaries plus one GNU sha256sum
+# checksums.txt covering both architectures and the five static assets. `make dist-pack`
+# owns that file; release.yml signs it with cosign.
 builds:
   - id: codeplod
     main: ./cmd/codeplod
-    binary: codeplod
+    binary: "codeplod_linux_{{ .Arch }}"
+    no_unique_dist_dir: true
     env:
       - CGO_ENABLED=0
     goos: [linux]
@@ -20,7 +29,8 @@ builds:
       - -s -w -X github.com/codeplo/codeplo/internal/app.Version={{ .Version }} -X github.com/codeplo/codeplo/internal/app.Commit={{ .ShortCommit }} -X github.com/codeplo/codeplo/internal/app.BuiltAt={{ .Date }}
   - id: codeplo
     main: ./cmd/codeplo
-    binary: codeplo
+    binary: "codeplo_linux_{{ .Arch }}"
+    no_unique_dist_dir: true
     env:
       - CGO_ENABLED=0
     goos: [linux]
@@ -29,14 +39,3 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X github.com/codeplo/codeplo/internal/app.Version={{ .Version }} -X github.com/codeplo/codeplo/internal/app.Commit={{ .ShortCommit }} -X github.com/codeplo/codeplo/internal/app.BuiltAt={{ .Date }}
-
-# deploy/install.sh downloads raw binaries named <name>_linux_<arch>, not tarballs.
-archives:
-  - format: binary
-    name_template: "{{ .Binary }}_linux_{{ .Arch }}"
-
-# The canonical checksums.txt (five static deploy assets + both arch binaries, GNU two-space
-# sha256sum) is produced by `make dist` / `make dist-pack` and published by release.yml.
-checksum:
-  name_template: checksums.txt
-  algorithm: sha256

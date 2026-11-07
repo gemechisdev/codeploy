@@ -32,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | extensions list|register|dead|check | github-app check|repos | update [--from DIR] [--bin-dir DIR] | rollback [--stamp STAMP] | pty-helper (systemd only)")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | extensions list|register|dead|check | mcp check [--json] | github-app check|repos | update [--from DIR] [--bin-dir DIR] | rollback [--stamp STAMP] | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -65,6 +65,10 @@ func run(cmd string, args []string) error {
 	}
 	if cmd == "github-app" {
 		return githubAppCommand(args)
+	}
+	// mcp check reads the module flag, the socket path and whether a token is bound. It never prints the token.
+	if cmd == "mcp" {
+		return mcpCommand(args)
 	}
 	// previews reads the database and the environment and writes nothing: taking a preview down is the daemon's sweep,
 	// on the process that owns the engine and the containers. It opens the data directory itself, so it is dispatched

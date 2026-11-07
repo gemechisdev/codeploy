@@ -15,23 +15,18 @@ jobs:
         with: { go-version-file: go.mod }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
-      - name: Build web bundle (and stage it for go:embed)
-        run: |
-          make web
-          rm -rf internal/webui/dist && mkdir -p internal/webui/dist
-          cp -r web/dist/. internal/webui/dist/
-          touch internal/webui/dist/.gitkeep
-      # before.hooks in .goreleaser.yaml also build web + copy, so this builds both binaries for
-      # linux/amd64 + arm64 with CGO_ENABLED=0, -trimpath and the Makefile's version ldflags.
+      # .goreleaser.yaml's before.hooks build the SPA and stage it for go:embed. GoReleaser then
+      # writes codeplod_linux_{amd64,arm64} and codeplo_linux_{amd64,arm64} directly into dist/
+      # (no_unique_dist_dir), so these are the binaries the installer will download.
       - name: GoReleaser multi-arch build
         uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'
           args: build --clean
-      # Produces the exact artefact set deploy/install.sh downloads, plus the 9-line checksums.txt
-      # (both arch binaries + five static assets) in GNU two-space sha256sum format.
+      # Reuse the GoReleaser binaries (never delete or rebuild them), add the five static assets
+      # and build the 9-line checksums.txt (both arch binaries + five assets) in GNU sha256sum format.
       - name: Assemble installer artefacts and checksums.txt
-        run: make dist-pack
+        run: make dist-pack DIST_FROM_GORELEASER=1
       - uses: sigstore/cosign-installer@v3
       - name: Keyless-sign checksums.txt (OIDC identity pinned)
         env:

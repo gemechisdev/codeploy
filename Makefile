@@ -40,11 +40,16 @@ lint:
 	go vet ./...
 	@command -v golangci-lint >/dev/null && golangci-lint run || echo "golangci-lint not installed; skipped"
 
-test-web:
-	cd web && npm test -- --run
+TEST_WEB_CMD := cd web && npm test -- --run
 
+test-web:
+	$(TEST_WEB_CMD)
+
+# The frontend suite is part of `make test`, not a separate target nobody runs (T69). No recursive $(MAKE):
+# its value has spaces on the Windows GnuWin32 host and /bin/sh cannot parse it.
 test:
 	go test ./...
+	$(TEST_WEB_CMD)
 
 # migrate-check: full migration chain reaches v8. -v + the RUN guard makes a renamed/missing
 # test fail the target instead of silently passing with "no tests to run" (T1/T2).
@@ -72,14 +77,24 @@ run:
 # arch still matches exactly 7 lines in the installer's grep -cE guard (both arch binaries present,
 # the five static assets once). dist-pack is split out so CI can reuse the packaging after one web build.
 DIST_ARCHS := amd64 arm64
-dist: web
-	$(MAKE) dist-pack
+# release.yml runs `goreleaser build --clean` first, which writes binaries named
+# <name>_linux_<arch> straight into dist/. With DIST_FROM_GORELEASER=1 dist-pack reuses them
+# instead of deleting them (the old `rm -rf dist` discarded the GoReleaser output) or rebuilding.
+DIST_FROM_GORELEASER ?= 0
+dist: web dist-pack
 
 dist-pack:
-	rm -rf dist && mkdir -p dist
+	mkdir -p dist
+	@if [ "$(DIST_FROM_GORELEASER)" != "1" ]; then rm -f dist/codeplod_linux_* dist/codeplo_linux_*; fi
 	@for a in $(DIST_ARCHS); do \
-		CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplod_linux_$$a ./cmd/codeplod || exit 1; \
-		CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags '$(LDFLAGS)' -o dist/codeplo_linux_$$a ./cmd/codeplo || exit 1; \
+		for b in codeplod codeplo; do \
+			out="dist/$${b}_linux_$$a"; \
+			if [ -f "$$out" ]; then continue; fi; \
+			if [ "$(DIST_FROM_GORELEASER)" = "1" ]; then \
+				echo "dist-pack: GoReleaser artefact $$out is missing" >&2; exit 1; \
+			fi; \
+			CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags '$(LDFLAGS)' -o "$$out" "./cmd/$$b" || exit 1; \
+		done; \
 	done
 	cp deploy/codeplod.service deploy/caddy/codeplo-caddy.service deploy/codeplo-pty.socket 'deploy/codeplo-pty@.service' dist/
 	cp deploy/caddy/bootstrap.json dist/caddy-bootstrap.json
