@@ -1,7 +1,10 @@
 # ADR 0007: Pull-request preview environments
 
-Status: accepted (implemented, not verified on a real host — migrations 0006/0007 have never been applied, and T5,
-T14, T15 and T47 are outstanding; see `docs/HANDOFF_NOTES.md` §2). Nothing in this ADR reports a measured result.
+Status: accepted (implemented). Migrations 0001–0008 now apply cleanly through the real `store.Migrate` (goose)
+path — `TestMigrateAllToV8` and `make migrate-check` — and `TestPreviewNoFK` proves the no-FK survival and orphan
+query this ADR rests on. Still outstanding: engine-level preview build/teardown unit tests (T14/T15) and the
+real-DNS lifecycle (T47). See `docs/site/verification-matrix.md`. Nothing in this ADR reports a measured host
+result.
 
 ## Context
 
@@ -28,8 +31,9 @@ table in 0004/0007 points at `resources`. Three traps are avoided (0007 comment,
 
 The DSN runs with `_pragma=foreign_keys(1)` per connection (HANDOFF_NOTES §2). Because no FK is declared on these
 two columns, the pragma has nothing to enforce on them: deleting a parent or a preview resource cannot cascade into
-or be blocked by `pr_previews`. The row survives by construction, not by disabling the pragma. T5 is the still-owed
-test that deletes a parent and proves survival and sweep reconciliation; it has NOT been run here.
+or be blocked by `pr_previews`. The row survives by construction, not by disabling the pragma. `TestPreviewNoFK`
+(T5) now asserts the pragma is on, deletes both a parent and a preview resource, and proves the row survives and
+the sweep's orphan query sees it.
 
 Reconciliation belongs to `Sweep` (`internal/modules/previews/sweep.go`), the only owner. It reconciles against
 reality, not a pointer: `orphans()` finds previews whose parent or own `resources` row is gone, `duePreviews()`
@@ -81,7 +85,7 @@ slug/directory, so the directory is reaped only while no other `pr_previews` row
   statement `close()`. A stopped sweep leaves garbage rows and containers by design.
 - A preview needs all three gates — feature flag, valid `CODEPLO_PREVIEW_DOMAIN`, and a live engine/queue — before
   `Enabled` is true; hostnames are one DNS label under the base domain because the wildcard record matches one label.
-- Verification owed, none executed here: T5 (no-FK survival under `foreign_keys=1`), T14/T15 (no unit tests exist
-  for `previews` yet, per FUTURE_TASKS Group B), and T47 (real-DNS lifecycle). Migrations 0006/0007 were written
-  against the DDL by reading it (HANDOFF_NOTES §2); no `goose up` has proven the columns line up. No runtime
-  behaviour or measurement is claimed.
+- Verification status: T5 is **proven** by `TestPreviewNoFK`; migrations 0006/0007 (and 0008) are **proven to
+  apply** by `TestMigrateAllToV8`. `internal/modules/previews/previews_test.go` currently covers only
+  `TestCheckWithoutDomain` and `TestHostnameGrammar`, so T14/T15 (build/teardown/Sweep unit tests) remain owed, as
+  does T47 (real-DNS lifecycle). No host runtime behaviour or measurement is claimed here.

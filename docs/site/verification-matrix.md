@@ -1,21 +1,30 @@
 # Verification matrix — hardware / runner-gated work
 
-Status of this document: **UNRUN**. The operator asked us to skip running any test suite; every item below is a
-deliberately unverified artefact. No command in this file has been executed, no VM, Docker daemon, DNS record, CI
-runner, public domain or live frontend was touched, and no result is reported. "NOT RUN" is the only true status
-for each row. Sources: `FUTURE_TASKS.md` (Groups C/D/E), `PROGRESS.md` ("Honest remaining" and Group E table),
-`docs/HANDOFF_NOTES.md`. Each section names the missing machine/gate, then concrete commands and steps taken from
-repo artefacts. All rows: NOT RUN.
+Status of this document: **mixed — see each row**. This file was originally written when no test suite had been
+run; that is no longer true. Local gates, the generated-drift check and GitHub Actions have all executed since, and
+two CI failures were found and fixed. Rows that need a VM, a Docker daemon, DNS, a public domain, a GitHub App
+installation or a live daemon remain **NOT RUN** and are labelled as such; nothing here claims a host measurement
+that did not happen.
+
+What has actually been executed (2026-11-07, Windows dev host unless noted):
+`go build ./...`, `go vet ./...`, `go test ./...`, `make gen-check`, `make migrate-check`'s
+`TestMigrateAllToV8`, the P4–P7 real-router suite in `internal/api/handlers_phase_test.go`, the full frontend
+gate chain (`lint`, live-mode `build`, `check:mock-free`, `check:external`, `check:size`, `npm test -- --run` —
+9 files / 94 tests), and `codeplo mcp check --json`. GitHub Actions has also run: the generated-drift job and the
+frontend vitest job both failed, and both were root-caused and fixed (`docs/DECISIONS.md`, "Finalization pass").
+
+Sources: `FUTURE_TASKS.md` (Groups C/D/E), `PROGRESS.md`, `docs/HANDOFF_NOTES.md`. Each section names the missing
+machine/gate, then concrete commands and steps taken from repo artefacts.
 
 ## T43 — full race tree
 
-Gate: the Go race tree needs a working C compiler. `docs/HANDOFF_NOTES.md` §1 says `go test -race` needs
-`CC="C:/tools/winlibs/mingw64/bin/gcc.exe"` on this host and has not run since P3's gate.
+Gate: the Go race tree needs a working C compiler; on this host that is
+`CC="C:/tools/winlibs/mingw64/bin/gcc.exe"`.
 
 | Step / command (from repo) | Status |
 |---|---|
-| `CC="C:/tools/winlibs/mingw64/bin/gcc.exe" go test -race -count=1 ./...` (FUTURE_TASKS T43) | NOT RUN |
-| Fix everything the run reports; `.github/workflows/ci.yml` runs `go test -race ./...` on a runner | NOT RUN |
+| `CC="C:/tools/winlibs/mingw64/bin/gcc.exe" go test -race -count=1 ./...` | **RAN, FAILED, FIXED, RE-RUN GREEN (2026-11-07)** — first run failed `TestDockerConfigIsEphemeralAndPrivate` because Windows reports `0777`/`0666` for `MkdirTemp`/`WriteFile`. Assertions are now `runtime.GOOS != "windows"` for POSIX bits and platform-independent for secret sealing. Re-run: every package `ok`, `RACE=0` (`internal/api` 343.7 s) |
+| `.github/workflows/ci.yml` `go test -race ./...` on a runner | **NOT CONFIRMED** — the workflow has executed, but no green runner result for this step observed in this session |
 
 ## T45 — P2b/P2c VM fault-injection matrix
 
@@ -66,14 +75,17 @@ Gate: a public domain pointed at the host; the SSH tunnel path must still work a
 
 ## T49 — CI on a runner
 
-Gate: a GitHub Actions runner; `ci.yml`, `memory-budget.yml` and `release.yml` have never executed (FUTURE_TASKS T49).
+Gate: a GitHub Actions runner. `ci.yml` **has now executed** on a runner and reported two real failures; both were
+fixed. A full green re-run after those fixes has not yet been observed from here.
 
 | Step / command (from repo) | Status |
 |---|---|
-| Push / PR: `.github/workflows/ci.yml` → `make lint`, `go test -race ./...`, authz matrix, OpenAPI/generated drift (`make gen` + `git diff --exit-code`), `make build` | NOT RUN |
+| `# OpenAPI vs generated drift-check` job (`make gen-check` + `git diff --exit-code`) | **RAN, FAILED, FIXED** — committed `schema.d.ts` / `models.gen.go` were stale after `67b8e6e`; regenerated, and `make gen-check` now passes locally. This also means T71's gate has genuinely executed |
+| Frontend `web` job (`npm test -- --run`) | **RAN, FAILED, FIXED** — Node 20 vs `undici`/`jsdom` engine mismatch killed all 9 vitest forks workers; pinned Node 22.22.2 via `web/.nvmrc` + `node-version-file` + `engines.node` + a CI toolchain guard. Full frontend gates pass locally |
+| `go` job: `make lint`, `go test -race ./...`, authz matrix, `make build` | **PARTIAL** — CI ran the workflow; an all-green runner result for every step has not been confirmed in this session |
+| `go-arm64` job (`go test ./...` + `GOARCH=arm64 go build ./...`) (T66) | **NOT CONFIRMED** — no green arm64 runner result observed |
 | `workflow_dispatch` `.github/workflows/memory-budget.yml` (idle RSS, report-only) | NOT RUN |
-| `.github/workflows/release.yml` | NOT RUN |
-| Fix whatever the first real run reports | NOT RUN |
+| `.github/workflows/release.yml` — GoReleaser + cosign keyless signing on a real tag | NOT RUN |
 
 ## T50 — Profile B and C measurements
 
@@ -106,13 +118,32 @@ Gate: a real GitHub App installation and a private repository.
 
 ## T62 — live-mode frontend pass
 
-Gate: a real daemon with `VITE_API_MODE=live`; everything P4–P7 built mock-only (FUTURE_TASKS T62, PROGRESS
-"Honest remaining").
+Gate: a **running daemon** to click through P4–P7 against. The static/unit gate chain has passed locally; that is
+not the same thing as a live-mode pass, and this row does not claim it is.
 
 | Step / command (from repo) | Status |
 |---|---|
-| `VITE_API_MODE=live` against a real daemon | NOT RUN |
-| `cd web && npm run lint`, `npm run build`, `check:mock-free`, `check:external`, `check:size`, `test` | NOT RUN |
+| `cd web && npm run lint`, `VITE_API_MODE=live npm run build`, `check:mock-free`, `check:external`, `check:size`, `npm test -- --run` | **PASS (local, 2026-11-07)** — 9 test files / 94 tests; also part of `make test` now (T69) |
+| `VITE_API_MODE=live` against a real daemon: projects/resources/deployments, Source tab, monitoring charts, notifications, backups + restore wizard, templates, terminal and logs | **NOT RUN** — needs a live systemd host; WS/SSE and step-up flows are still unverified end to end |
+
+## T71 — `make gen` idempotence in CI
+
+| Step / command (from repo) | Status |
+|---|---|
+| `.github/workflows/ci.yml` → `make gen-check` (md5 of `schema.d.ts`, `stubs_gen.go`, `models.gen.go` before/after two generation runs) | **RAN (CI), FAILED, FIXED** — caught real drift; regenerated files committed |
+| `make gen-check` locally | **PASS** — `gen: idempotent and no drift (web/src/api/schema.d.ts internal/api/stubs_gen.go internal/api/oapigen/models.gen.go)` |
+| A green CI re-run of the drift job after the fix | **NOT CONFIRMED** from this session |
+
+## T44 — Spike E: host PTY on real systemd
+
+Gate: a real systemd host with the privileged `codeplo-pty@.service` helper and an owner session.
+`test/spikes/p3_hostpty_spike_test.go` is `//go:build spike` and `tmp/setup_spike_e.sh` is explicitly an unrun
+artefact. `TestTerminalAndRunning` in `internal/modules/terminal` is a unit test, not a host PTY run.
+
+| Step / command (from repo) | Status |
+|---|---|
+| `tmp/setup_spike_e.sh` on a systemd host, then the spike test with `-tags spike` | NOT RUN |
+| Root shell via step-up ticket, PTY resize, audit row, session teardown | NOT RUN |
 
 ## T70 — leftover WSL fixture state (NOT RUN)
 

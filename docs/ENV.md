@@ -28,6 +28,22 @@ All daemon configuration is `CODEPLO_*`. Defaults match a typical install under 
 |---|---|---|
 | `CODEPLO_PTY_SOCKET` | `/run/codeplo-pty/pty.sock` | Privileged PTY helper |
 
+## Extensions / MCP (daemon-local, off by default)
+
+There is no HTTP route for any of this (see `docs/DECISIONS.md` T53). The MCP endpoint is a unix socket owned by the
+daemon; both the `mcp` module row and the `mcp.server` feature flag must be enabled before a connection is served,
+and the gate is re-read at accept time, so switching it off takes effect on the next connection without a restart.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEPLO_MCP_SOCKET` | `$DATA_DIR/mcp.sock` | Override the MCP unix socket path; created mode 0600 |
+| `CODEPLO_MCP_TOKEN` | _(empty)_ | A `cpl_` API token whose scopes bind each MCP connection to a principal. Read at accept time, never logged, never printed |
+
+Rotate `CODEPLO_MCP_TOKEN` by restarting the daemon with the new value; the change applies to the next connection.
+`codeplo mcp check [--json]` reports the flag state, the resolved socket path, whether the socket exists and
+**whether** a token is set — never the token itself. Outbound extension delivery is gated by the
+`extensions.outbound` feature flag and needs no environment variable.
+
 ## Previews / GitHub App
 
 | Variable | Default | Purpose |

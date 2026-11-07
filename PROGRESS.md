@@ -1,13 +1,23 @@
-# PROGRESS: codeplo — P0–P3 met (P3 host-shell run owed), P4 implemented and compiling
+# PROGRESS: codeplo — P0–P9 implemented; host/runner verification still owed
 
-Status: **Phase 4 (projects, resources, deployments) is implemented end to end in the backend** — migration
-`0004_workloads.sql`, the isolation policy, the container `Manager` port, the §3.8 engine, the REST handlers and
-the daemon wiring. `go build ./...`, `go vet ./...` (which compiles the test files too) and `gofmt -l .` are clean.
-**No test has been run for Phase 4**: the instruction for this stretch of work is development only, with compile
-checks, and the test-and-fix pass is deliberately held to the end of all phases. Phase 2 is deployed and
-gate-verified on a real systemd host; Phase 3's foundation and container runtime are verified against real Docker,
-while its host-shell run is still owed.
-Evidence tables below; full detail in `TEST_REPORT.md`, judgment calls in `docs/DECISIONS.md`.
+**Current status (2026-11-07 finalization pass).** All phases P0–P9 are implemented in code, migrations 0001–0008
+apply through the real `store.Migrate` path, and the local gate chain has been executed: `go build ./...`,
+`go vet ./...`, `go test ./...`, `make gen-check`, `make migrate-check`, the P4–P7 real-router handler suite and the
+full frontend gate chain (lint, live-mode build, `check:mock-free`, `check:external`, `check:size`, 94 vitest
+tests). GitHub Actions has also run and reported two real failures — generated-file drift and a Node 20 frontend
+engine mismatch — both root-caused and fixed. A full green CI re-run is not yet observed.
+
+**What is still NOT RUN:** the host-facing matrix — spike E host PTY (T44), P2b/P2c VM fault injection (T45), real
+Docker deploy/fault injection (T46), real-DNS preview lifecycle (T47), public panel HTTPS (T48), Profile B/C
+measurements (T50), the reusable GH Actions deploy workflow (T51), a real GitHub App install (T52), a live-mode
+frontend click-through against a running daemon (T62), and `release.yml` on a real tag (T63–T66). See
+`docs/site/verification-matrix.md` for the per-row status. Nothing here claims a host measurement that did not
+happen.
+
+The phase tables below are the **historical build record** and were written while a "code only, no tests"
+instruction was in force; where they say "no test has been run", read them as describing that moment, not today.
+The current proof map is `FUTURE_PROGRESS.md` §1. Full historical detail in `TEST_REPORT.md`, judgment calls in
+`docs/DECISIONS.md`.
 
 ## Phase 2 — what was built
 
@@ -534,11 +544,41 @@ Migration head is now **8** (`TestMigrateAllToV8`).
 
 ### Honest remaining (operator/CI/hardware)
 
-- T6/T7 full deploy engine Run fakes; T43 full race tree
-- T44–T52 real host matrix (Docker, DNS, CI runners)
-- T62 live-mode frontend pass against a real daemon
-- T63–T66 GoReleaser/cosign/arm64 CI
-- T68 a11y/i18n; T70 host cleanup; T71 gen idempotence in CI
+- T6/T7 full deploy engine `Run` fault injection; T14/T15 preview build/teardown unit tests; T25 live mock-vs-handler contract conformance
+- T44–T52 real host matrix (systemd PTY, VM fault injection, Docker, DNS, public HTTPS, reference VMs, GH Actions deploy workflow, GitHub App install)
+- T62 live-mode frontend pass against a real daemon (the static/unit gates have passed locally; that is not this)
+- T63–T66 a real tagged `release.yml` run with cosign verification end to end, and a confirmed-green arm64 runner
+- T70 WSL fixture-state cleanup or an explicit fixture-ownership decision
+- A confirmed all-green CI re-run after the drift and Node fixes
 
 Operators: apply migration 0008 on upgrade; read `docs/ENV.md` and `docs/RELEASE_NOTES.md`.
+
+## Finalization pass (2026-11-07)
+
+Evidence actually produced on this host. Each "PASS" is an executed command, not a compile check.
+
+| Gate / item | Result |
+|---|---|
+| `go build ./...`, `go vet ./...` | PASS |
+| `go test ./...` | **PASS** — every package `ok`, including `test/authz` (exact Go-route/OpenAPI parity) and `internal/store` (`TestMigrateAllToV8`, `TestMigrateSeeds`, `TestQueryPlans`, `TestPreviewNoFK`) |
+| `CC="C:/tools/winlibs/mingw64/bin/gcc.exe" go test -race -count=1 ./...` (T43) | **PASS** after fixing the Windows POSIX-mode assertion; `RACE=0`, all packages `ok` |
+| `make gen-check` (T71) | **PASS** — `gen: idempotent and no drift`; CI's drift job had failed, stale `schema.d.ts` + `models.gen.go` regenerated and committed |
+| Frontend gates (T62 partial, T69) | **PASS** — `npm run lint`, `VITE_API_MODE=live npm run build`, `check:mock-free`, `check:external`, `check:size`, `npm test -- --run` (9 files / 94 tests). Now part of `make test` |
+| `codeplo mcp check --json` (T59) | **PASS** — migrations applied through v8 against a scratch DB; returned `enabled:false`, resolved socket path, `token_set:false`. CLI dispatch added to `cmd/codeplo/main.go` |
+| `make dist-pack` + `make dist-pack DIST_FROM_GORELEASER=1` | **PASS** — GoReleaser binaries reused, missing-artefact refusal verified, 9-line `checksums.txt` produced |
+| Node toolchain (CI failure fix) | `web/.nvmrc` `22.22.2`; `ci.yml`/`release.yml` `node-version-file`; `engines.node` in `package.json` + lockfile; CI guard; local `npm ci --dry-run --ignore-scripts` PASS |
+
+### Code fixes made in this pass
+
+- `internal/api/handlers_phase_test.go` — new T24/T26 proof: real router, real guards, all **57** P4–P7 routes, audit-chain writes, refusal-leaves-nothing, write-only secrets, unwired-service 500s, contract read shapes, off-by-default module seeds.
+- `internal/api/handlers_ops.go` — `alertRuleSvc` now gates `/alerts/rules` on **both** `notify` and `monitor`; previously those three routes ignored the module their `RouteDef` declares.
+- `internal/modules/deploy/builders/builders_test.go` — Windows-safe POSIX assertions plus stronger platform-independent secret-sealing proof.
+- `Makefile` — shared `GEN_CMD` (no recursive `$(MAKE)`), `test` includes vitest, `DIST_FROM_GORELEASER` reuse path.
+- `web/scripts/lint-guards.mjs` — generated contract JSDoc exempted only from the hard-coded-IP rule; all other guards retained.
+- `cmd/codeplo/main.go` — dispatch `codeplo mcp`; `.goreleaser.yaml` / `.github/workflows/release.yml` — raw binaries into `dist/`, Node pinned.
+- `.gitignore` — `/dist/`, `/dist-gr/`; `web/.nvmrc` created.
+
+### Documentation refreshed
+
+`PROGRESS.md`, `FUTURE_PROGRESS.md`, `FUTURE_TASKS.md` (status header), `docs/DECISIONS.md` (stale statements + 8 new decisions), `docs/ENV.md` (MCP variables), `docs/adr/0007-pr-preview-environments.md` (status now that 0006/0007 apply and T5 is proven), `docs/site/verification-matrix.md` (per-row RAN/FIXED/NOT RUN), `docs/RELEASE_NOTES.md`, `docs/site/operator-guide.md`.
 

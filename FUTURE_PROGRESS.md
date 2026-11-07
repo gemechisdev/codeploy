@@ -1,96 +1,104 @@
 # FUTURE PROGRESS — where codeplo stands and what "finished" means
 
-Snapshot: 2026-10-21 (post T1/T2). Companion files: `PROGRESS.md` (what is built, per phase, with the
-evidence tables), `docs/DECISIONS.md` (why each judgment call went the way it did), `FUTURE_TASKS.md` (the exhaustive
-remaining checklist), `docs/HANDOFF_NOTES.md` (observations, host quirks, what to avoid), `PROMPT.md` (the brief for
+Snapshot: **2026-11-07** (finalization pass). Companion files: `PROGRESS.md` (what is built, per phase, with the
+evidence tables), `docs/DECISIONS.md` (why each judgment call went the way it did), `FUTURE_TASKS.md` (the
+exhaustive T1–T74 checklist), `docs/HANDOFF_NOTES.md` (observations and the patterns this codebase expects),
+`docs/site/verification-matrix.md` (per-row proof status for hardware/runner-gated work), `PROMPT.md` (the brief for
 the next agent).
 
-`PROGRESS.md` is a record of the past. This file is the map for the rest of the build, written by the agent that
-built P0–P7's backend under a "code only, compile-checked, no tests" instruction.
+This file was originally written by the agent that built P0–P7's backend under a "code only, compile-checked, no
+tests" instruction. That instruction no longer holds: local gates have been run, P4–P7 have a real-router test
+suite, CI has executed, and the release pipeline exists. Where a claim below says "proven", a named test or command
+is given. Where it says "NOT RUN", no result is being claimed.
 
 ## 1. State of the build, honestly
 
 | Phase | Code | Proof |
 |---|---|---|
-| P0 Foundations | complete | threat model + 6 ADRs merged; Docker spike **run and green**; Caddy zero-drop spike **flaky/unmet** |
-| P1 Control plane | complete | installer verified on a real systemd host; auth/2FA/audit/authz verified; **idle RSS budget unmet** (78.8 MB vs 50 MB); **CI never executed on a runner** |
-| P2 Edge + hardening | complete (P2a/P2b/P2c code) | P2a verified on WSL (real Caddy, 15/15 installer assertions); Tier-1 apply verified; **P2b/P2c VM fault-injection matrix never run**, so firewall/SSH apply stays flag-gated plan-only |
-| P3 Terminal + logs | complete | race-tested (13 packages ok); container half runtime-verified against real Docker 29.1.3; **host-shell run (spike E) never executed**; frontend live-mode pass never done |
-| P4 Projects + deploys | complete | **compiles only — zero tests executed**; §3.8 fault-injection matrix owed |
-| P5 Git + CI/CD | complete | **compiles only**; the HMAC/replay/skip-deploy/oversize-clone proofs are unrun; reusable Actions workflow never executed |
-| P6 Operations | backend complete | **compiles only**; migration 0006 applied successfully via `store.Migrate` (T1); frontend exists mock-driven, never run live |
-| P7 Extensibility | templates (J6) + GitHub App (G5) + commit status (G7) + PR previews (G8) complete; **J4 extensions and J7 MCP not started** | **compiles only**; migration 0007 applied successfully via `store.Migrate` (T1); `codeplo templates check` and `codeplo github-app check` were run by hand against scratch inputs and behaved as designed |
-| P8 Scale/advanced access | not started (explicitly later) | — |
-| P9 Release hardening | not started | no signed artefacts, no `codeplo update`, arm64 never built |
+| P0 Foundations | complete | threat model + ADRs merged; Docker spike **run and green**; Caddy zero-drop spike **flaky/unmet** |
+| P1 Control plane | complete | installer verified on a real systemd host; auth/2FA/audit/authz verified; **idle RSS budget unmet** (78.8 MB vs 50 MB) |
+| P2 Edge + hardening | complete (P2a/P2b/P2c code) | P2a verified on WSL (real Caddy, 15/15 installer assertions); Tier-1 apply verified; **P2b/P2c VM fault-injection matrix still NOT RUN** |
+| P3 Terminal + logs | complete | race-tested; container half runtime-verified against real Docker 29.1.3; **host-shell run (spike E, T44) still NOT RUN** |
+| P4 Projects + deploys | complete | **handler layer proven**: `internal/api/handlers_phase_test.go` runs the real chi router, real guards, real services and a migrated SQLite DB (57 P4–P7 routes, audit chain, refusal-leaves-nothing, write-only secrets, contract shapes). Engine unit tests cover path confinement, git URL validation, BuildKit secrets, `DOCKER_CONFIG`, redaction, image classification. **§3.8 fault-injection Run matrix (T6/T7) still owed** |
+| P5 Git + CI/CD | complete | unit proofs for HMAC signature verification, image matching, canonical repo URL and `[skip deploy]`. The full webhook delivery/replay path against a real forge and the reusable Actions workflow (T51) are **NOT RUN** |
+| P6 Operations | complete | migrations apply; alert rules, channels, backup schedules and metrics now exercised through the real router (create/patch/delete + audit rows + cross-module channel cleanup); unwired-service 500 behaviour proven. **Live-mode frontend pass still NOT RUN** |
+| P7 Extensibility | complete — templates, GitHub App, commit status, PR previews, **J4 extensions and J7 MCP landed** | migration 0008 applies (`TestMigrateAllToV8`); `TestPreviewNoFK` proves the no-FK design; extensions register/enqueue/deliver/authorize, MCP serves flag-gated tools, and `codeplo mcp check --json` ran against a scratch DB. Real GitHub App install (T52) and real-DNS preview lifecycle (T47) **NOT RUN** |
+| P8 Scale/advanced access | not started (deliberately out of scope, T74) | — |
+| P9 Release hardening | **implemented**: `.goreleaser.yaml` (amd64 + arm64 raw binaries), `release.yml` with keyless cosign, `codeplo update` / `rollback`, `docs/ENV.md`, `docs/site/operator-guide.md`, `docs/RELEASE_NOTES.md`, ADR 0007, arm64 CI job | GoReleaser reuse path and `dist-pack` refusal verified locally; **`release.yml` has never executed on a real tag**; no signed artefacts published |
 
-The one sentence that matters: **every phase from P4 onward was built under an instruction not to run tests, so
-P4–P7's backend is unproven.** Compilation is not evidence. The next agent's first job is turning that into evidence.
+The sentence that used to matter — *"every phase from P4 onward was built under an instruction not to run tests, so
+P4–P7's backend is unproven"* — is **no longer true at the handler and module level**. What remains unproven is the
+host-facing half: real Docker/VPS/DNS/CI-runner behaviour. Compilation was never evidence; neither is a green unit
+suite a substitute for a host run.
 
-## 2. The contract is the reason P7's remaining items are a decision, not a task
+## 2. The contract is why extensions/MCP have no routes
 
 `api/openapi.yaml` is contract authority and `test/authz/routes_test.go` asserts the Go route set equals it exactly —
-no extra route, none missing. All 110 contract operations are implemented; **zero routes are served by the 501 stub**.
-The contract contains **no route surface at all** for extensions, an extension API, outbound event webhooks, or MCP.
-That is why P7's templates, GitHub App, commit status and previews were built behind the CLI, the daemon's loops and
-outbound calls instead of as invented routes.
+no extra route, none missing, one `x-permission` per operation. The contract has **no route surface** for
+extensions, outbound event webhooks or MCP. T53 decided (see `docs/DECISIONS.md`) to deliver J4/J7 behind the CLI,
+the daemon's job/delivery loops and a flag-gated unix socket rather than expanding the contract. That decision is
+now implemented, not pending. Adding a browser UI for extensions later is a deliberate contract expansion that must
+re-run `make gen`, the authz matrix and the mock parity tests in one commit.
 
-So J4 (extensions: registration, scoped tokens, event delivery with retries, action endpoints) and J7 (MCP server
-module) each start with a question the last agent cannot answer for you: **add the routes to the contract, or deliver
-the capability without them.** Adding them is allowed (it is the plan's own P7 scope: "MCP client can list resources
-and trigger a deploy", "a sample out-of-process extension receives events and invokes an action with a token") but it
-re-runs the stub generator, the authz matrix and the mock parity tests, so it must be one deliberate commit, not a
-side effect. Decide, write the entry in `docs/DECISIONS.md`, then build.
+## 3. Milestones — what is left of each
 
-## 3. Milestones, in the only order that works
+**M1 — Make the database real. DONE.** `store.Migrate` (goose) reaches version 8 from an empty dir;
+`TestMigrateAllToV8`, `TestMigrateSeeds`, `TestQueryPlans` and `make migrate-check` all pass. `TestPreviewNoFK`
+proves the no-FK survival case under `foreign_keys=1`.
 
-**M1 — Make the database real (half a day).** Apply migrations 0001–0007 to a scratch database with a real
-`goose up`, boot the daemon against it, and let every later phase's tests run. A bad migration blocks daemon boot,
-which blocks every runtime check in the project, so nothing else is worth doing first.
+**M2 — Turn P4–P7 into evidence. SUBSTANTIALLY DONE, not complete.** The real-router suite covers guards, module
+flags, audit-chain writes, refusals, write-only secrets, unwired services and list/read shapes across all 57
+later-phase routes. Still owed: engine `Run` fault injection over every §3.8 row (T6/T7), preview build/teardown
+unit tests (T14/T15), and a live mock-vs-handler contract conformance run (T25).
 
-**M2 — Turn P4–P7 into evidence (the bulk of the remaining work).** Engine fault injection over every §3.8 row, the
-P5 security paths, the P6 operations behaviour, the P7 preview lifecycle, plus contract-conformance runs of the real
-handlers against what `web/src/mock` asserts. Expect this to find bugs; that is the point. Standing rule: never
-weaken a test to make it pass — the test is the specification.
+**M3 — Run what only a machine can run. MOSTLY NOT RUN.** Spike E (T44), the P2b/P2c VM matrix (T45), real-DNS
+previews (T47), public HTTPS (T48), Profile B/C measurements (T50), the reusable deploy workflow (T51) and a real
+GitHub App install (T52) all need host resources. CI **has** run: the drift job and the frontend job both failed and
+both were fixed. `docs/site/verification-matrix.md` is the authoritative per-row status.
 
-**M3 — Run the things that only a machine can run.** Spike E (host PTY) on real systemd, the P2b/P2c VM matrix, CI on
-a runner (the only place the RSS budget and `make gen` idempotence mean anything), installer fixtures serving all
-seven artefacts.
+**M4 — Finish P7's code. DONE (code), NOT RUN (host).** Extensions, MCP, previews UI and Templates search exist.
+The frontend's static/unit gates pass in live build mode, but no click-through against a real daemon (T62).
 
-**M4 — Finish P7's code.** J4 extensions, then J7 MCP, then the frontend's live-mode passes for
-templates/git/monitoring/backups/previews.
+**M5 — P9. CODE DONE, RELEASE NOT RUN.** GoReleaser, cosign, `update`/`rollback`, arm64 CI job and docs are in the
+tree. No tag has been pushed through `release.yml`; no signed artefact exists yet.
 
-**M5 — P9.** GoReleaser, cosign, `codeplo update` + `rollback`, arm64, docs. P8 stays later.
+## 4. What is likely to break, ranked (current)
 
-## 4. What is likely to break, ranked
+1. **A green CI re-run** — the two failures that were fixed (generated drift, Node 20) are understood, but no
+   all-green runner result has been observed in this session. Expect the `go` job's race step and `make build` to be
+   the first unexercised surfaces.
+2. **`release.yml` on a real tag** — GoReleaser output reuse, cosign keyless identity and the installer's
+   seven-artefact verification have only been checked locally, never end to end.
+3. **Engine `Run` fault injection (T6/T7)** — the largest untested code path. The handler suite deliberately uses
+   `deploy_now=false`, so it proves the HTTP/DB layer, not a container deploy.
+4. **Live-mode frontend (T62)** — WS/SSE, step-up and every P4–P7 screen against a running daemon.
+5. **Host/VM matrix (T44–T52)** — systemd PTY helper, firewall/SSH applies, DNS, public TLS and reference VMs.
+6. **Idle RSS 78.8 MB vs the 50 MB budget (T30)** and **Caddy zero-drop spike (T31)** — reported, not tuned;
+   Profile B/C never measured. Do not silent-tune either.
 
-1. **Migrations 0006/0007 unapplied** — hand-written SQL that has never met a database. First `goose up` will find
-   something.
-2. **Zero executed tests for P4–P7** — the deploy engine, git module, previews, templates, monitor, notify,
-   databases, cron and objectstore have no test files at all today.
-3. **Live mode has never run** — the SPA has only ever been exercised against the mock; the WS/SSE paths, the
-   `check:mock-free` guard and the step-up flow are unverified against a real daemon.
-4. **`/terminal/ticket` step-up says three different things** — OpenAPI declares `x-step-up: true` on the route, the
-   server requires step-up only for `as_root`, the mock follows the server. Contract, server and UI must say one
-   thing; decide it deliberately.
-5. **`POST /setup/operator` with `mode:"create"` returns 501** — a real gap in a first-run path, not a stub of a
-   later phase.
-6. **Idle RSS 78.8 MB vs the 50 MB budget** — reported, not tuned. Profile B/C have never been measured.
+Already closed from the old list: migrations 0006/0007 unapplied; zero P4–P7 tests; the `/terminal/ticket`
+step-up inconsistency (T28); `POST /setup/operator` `mode:"create"` returning 501 (T27); the missing J4/J7
+decision (T53).
 
 ## 5. Standing instructions that do not expire
 
-- **No credentials in this repo, ever.** The WSL VM's root password is supplied by the operator per session. History
-  is not rewritten. Secrets stay write-only through the API; build-time secrets are BuildKit secret mounts, never
-  `ARG`; dump credentials go in the exec environment, never argv; git tokens never appear in URLs or argv; registry
-  credentials live in an ephemeral 0700 `DOCKER_CONFIG`.
+- **No credentials in this repo, ever.** Secrets stay write-only through the API; build-time secrets are BuildKit
+  secret mounts, never `ARG`; dump credentials go in the exec environment, never argv; git tokens never appear in
+  URLs or argv; registry credentials live in an ephemeral `0700` `DOCKER_CONFIG`.
 - Smallest fix. Never delete or weaken a test to make it pass. Never report a skipped or unrun check as a pass.
 - A defect you can name gets fixed, not parked.
-- Judgment calls go in `docs/DECISIONS.md`; `PROGRESS.md` is updated before every commit; one commit per unit of work;
-  push when the local gates pass so CI runs the slow ones.
+- Judgment calls go in `docs/DECISIONS.md`; `PROGRESS.md` is updated before every commit; one commit per unit of
+  work; push when the local gates pass so CI runs the slow ones.
 - A running service is shared state. Nothing destructive or write-bearing against a live or shared system without
   explicit per-action approval; no force-push, no history rewrite, no bare `git stash` / `git reset --hard`.
 - Verify the state, not the artifact — a compile says the code type-checks, nothing more.
+- **Node is pinned by `web/.nvmrc`.** CI, release and `engines.node` all read it; changing the frontend toolchain
+  means changing that file, not a workflow's `node-version` literal.
 
-## Finalization 2026-10-22
+## Finalization 2026-11-07
 
-Implementation coverage landed for Groups A, C (minus full race), E (core), and partial B.
-Group D remains hardware-gated. P9 release pipeline not executed in this environment.
+Fixed from real CI failures: generated-file drift, the Windows `$(MAKE)` recursion in `gen-check`, the Node 20 /
+`undici` engine mismatch, the generated-contract lint false positive, the Windows POSIX-mode race assertion, the
+GoReleaser output deletion in `dist-pack`, the missing `codeplo mcp` dispatch, and the alert-rule module gate.
+Added: whole-route-table P4–P7 proof, `make test` including vitest, `web/.nvmrc`, `.gitignore` build-output rules.
+Still hardware/runner-gated: T44–T52, T62 (live daemon), T63–T66 (real release), T70. See the verification matrix.

@@ -75,6 +75,24 @@ func (s *Server) databasesSvc(w http.ResponseWriter, r *http.Request) (*database
 	return s.Databases, true
 }
 
+// Alert rules are exposed on the notifications surface: the contract tags them
+// "notifications" and they require notify:manage, so RouteDef.Module is "notify".
+// Their rows, catalog and validation belong to the monitor, though — deleting a
+// channel rewrites rules through monitor.PatchRule — so both modules have to be
+// on. Gating only on monitor let a request through to the rule service after the
+// operator had switched notifications off, which is the exact "module flag is
+// ignored" failure the guard test walks the whole route table to catch.
+func (s *Server) alertRuleSvc(w http.ResponseWriter, r *http.Request) (*monitor.Service, bool) {
+	if !s.moduleOn(w, r, "notify") || !s.moduleOn(w, r, "monitor") {
+		return nil, false
+	}
+	if s.Monitor == nil {
+		writeErr(w, 500, "internal", "The metrics module is not available on this daemon", nil)
+		return nil, false
+	}
+	return s.Monitor, true
+}
+
 // The three modules each declare their own FieldErrors, NotFound and Conflict: a module must not depend on another
 // module's error vocabulary to say what went wrong. So the mapping is written once per package rather than shared.
 
@@ -310,7 +328,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 // ---- alert rules ----
 
 func (s *Server) listAlertRules(w http.ResponseWriter, r *http.Request) {
-	m, ok := s.monitorSvc(w, r)
+	m, ok := s.alertRuleSvc(w, r)
 	if !ok {
 		return
 	}
@@ -323,7 +341,7 @@ func (s *Server) listAlertRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
-	m, ok := s.monitorSvc(w, r)
+	m, ok := s.alertRuleSvc(w, r)
 	if !ok {
 		return
 	}
@@ -353,7 +371,7 @@ func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) patchAlertRule(w http.ResponseWriter, r *http.Request) {
-	m, ok := s.monitorSvc(w, r)
+	m, ok := s.alertRuleSvc(w, r)
 	if !ok {
 		return
 	}

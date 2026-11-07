@@ -7,6 +7,21 @@ everything; group E is the remaining code; the rest is proof and polish.
 Each task names the files to touch and **how you know it is done**. If a task's verification is "it compiles", the
 task is not done.
 
+> **Status as of 2026-11-07.** This list was written when P4–P7 had no tests and P9 had no release pipeline. It is
+> kept verbatim as the stable numbering reference (`T17` must always mean the same task), but many items are now
+> closed. Read `FUTURE_PROGRESS.md` §1 for the current phase-by-phase proof map and
+> `docs/site/verification-matrix.md` for per-row proof status before starting work from this list.
+>
+> | Group | State now |
+> |---|---|
+> | A (T1–T5) | **Done** — migrations reach v8 via `store.Migrate`; `make migrate-check`, `TestMigrateSeeds`, `TestQueryPlans`, `TestPreviewNoFK` |
+> | B (T6–T26) | **Mostly done.** Handler/audit/secret/guard proof added in `internal/api/handlers_phase_test.go`; T6/T7 engine `Run` fault injection and T25 live mock-vs-handler conformance still owed |
+> | C (T27–T43) | **Done except a confirmed-green full race tree**; T34/T28/T29/T30/T31/T32 all recorded in `docs/DECISIONS.md` |
+> | D (T44–T52) | **NOT RUN** — all hardware/runner-gated; see verification matrix. CI itself has run (two failures fixed), but the host matrix has not |
+> | E (T53–T62) | **Code done.** T53 decided (no new routes), T54–T61 landed, `codeplo mcp check --json` verified. T62's live-daemon pass still NOT RUN |
+> | F (T63–T68) | **Code done, release not run.** GoReleaser + cosign + `update`/`rollback` + arm64 CI job + operator guide + a11y/i18n scaffolding exist; `release.yml` never executed on a tag |
+> | G (T69–T74) | **Done** — `make test` includes vitest, `.nvmrc`/CI Node pin, gen idempotence gate exercised in CI, `docs/ENV.md` (incl. MCP vars), ADR 0007, T74 boundary. T70 WSL host cleanup remains a host-side decision |
+
 ## Group A — Unblock the database (do this first, nothing else works without it)
 
 - **T1** Apply migrations 0001–0007 to a scratch database with the real `store.Migrate` (goose) path and assert

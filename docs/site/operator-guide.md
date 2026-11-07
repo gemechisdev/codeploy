@@ -1,4 +1,8 @@
-# Operator guide (draft)
+# Operator guide
+
+> Status: written from the implemented code. The install/HTTPS/VM procedures below have **not** been re-verified on
+> a fresh host in this session; `docs/site/verification-matrix.md` records exactly which host checks are still
+> NOT RUN.
 
 ## Install
 
@@ -64,6 +68,26 @@ Migrations are forward-only: rollback RESTORES a database snapshot, it never rev
 before an update is consistent with the binaries that created it, and the daemon re-applies pending migrations on
 boot.
 
+## MCP endpoint (optional, off by default)
+
+MCP is a daemon-local unix socket, not an HTTP route. To enable it, switch on the `mcp` module **and** the
+`mcp.server` feature flag, and set `CODEPLO_MCP_TOKEN` to a `cpl_` API token whose scopes should bound every MCP
+connection. The socket defaults to `<data-dir>/mcp.sock` (mode 0600) and can be moved with
+`CODEPLO_MCP_SOCKET`. The gate is re-read at accept time, so disabling the flag takes effect on the next
+connection without a restart; rotating the token takes effect the same way after the daemon's environment changes.
+
+    codeplo mcp check
+    codeplo mcp check --json
+
+The check reports `enabled`, the resolved `socket`, `socket_present` and `token_set`. It **never** prints the token.
+Outbound extension delivery is a separate feature flag, `extensions.outbound`, and needs no environment variable.
+
 ## Environment reference
 
-See `docs/ENV.md`.
+See `docs/ENV.md` for the full `CODEPLO_*` list, including the two MCP variables.
+
+## Build from source (for maintainers)
+
+The SPA requires **Node 22.22.2** (`web/.nvmrc`); CI and release read that same file. `make test` runs both
+`go test ./...` and the vitest suite. `make gen-check` must pass after any `api/openapi.yaml` edit, and
+`make dist-pack DIST_FROM_GORELEASER=1` is the release packaging path.
