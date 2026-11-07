@@ -54,6 +54,7 @@ func (s *Server) coreRoutes() []RouteDef {
 	return []RouteDef{
 		{Method: "GET", Path: "/setup/state", Perm: P, Handler: s.setupState},
 		{Method: "POST", Path: "/setup/admin", Perm: P, Handler: s.setupAdmin},
+		{Method: "POST", Path: "/setup/resume", Perm: P, Handler: s.setupResume},
 		{Method: "POST", Path: "/setup/totp/enroll", Perm: P, Handler: s.setupEnroll},
 		{Method: "POST", Path: "/setup/totp/verify", Perm: P, Handler: s.setupVerify},
 		{Method: "POST", Path: "/setup/verify-domain", Perm: P, Handler: s.setupVerifyDomain},
@@ -131,6 +132,54 @@ func (s *Server) setupSession(w http.ResponseWriter, r *http.Request) (*Principa
 		return nil, x, false
 	}
 	return p, x, true
+}
+
+// setupResume re-binds a setup-scoped session for the existing owner using a token from
+// `codeplo setup-token`. Used when the browser lost the setup cookie mid-wizard.
+func (s *Server) setupResume(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Token string `json:"token"`
+	}
+	if !decode(w, r, &b) {
+		return
+	}
+	x, err := s.setupRow(r.Context(), s.DB)
+	if err != nil {
+		internalErr(w, err)
+		return
+	}
+	if x.Step == "done" {
+		writeErr(w, 404, "not_found", "Setup is disabled: an owner already exists", nil)
+		return
+	}
+	if !x.AdminID.Valid {
+		writeErr(w, 409, "conflict", "No owner yet — use the setup token with Create owner instead", nil)
+		return
+	}
+	exp, _ := time.Parse(time.RFC3339Nano, x.TokenExp.String)
+	if !x.TokenHash.Valid || b.Token == "" || time.Now().After(exp) || !crypto.Equal(x.TokenHash.String, crypto.HashToken(b.Token)) {
+		writeErr(w, 403, "forbidden", "The one-time setup token is invalid or expired", nil)
+		return
+	}
+	var tok string
+	err = s.tx(r, func(tx *sql.Tx) (audit.Event, error) {
+		// Consume the token so it cannot be replayed.
+		if _, err := tx.Exec(`UPDATE setup_state SET token_hash=NULL, token_expires_at=NULL WHERE id=1`); err != nil {
+			return audit.Event{}, err
+		}
+		var e error
+		tok, _, e = s.newSession(r.Context(), tx, x.AdminID.String, "setup", clientIP(r), !isSecure(r))
+		if e != nil {
+			return audit.Event{}, e
+		}
+		return s.rec(r.Context(), tx, r, nil, "setup.session_resumed", "user", x.AdminID.String, map[string]any{"step": x.Step})
+	})
+	if err != nil {
+		internalErr(w, err)
+		return
+	}
+	setSessionCookie(w, r, tok, s.sessionTTL(r.Context()))
+	writeJSON(w, 200, map[string]any{"step": x.Step, "resumed": true})
 }
 
 func (s *Server) setupAdmin(w http.ResponseWriter, r *http.Request) {
@@ -329,11 +378,7 @@ func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var b struct {
-		Mode      string `json:"mode"`
-		Username  string `json:"username"`
-		PublicKey string `json:"public_key"`
-	}
+	var b struct{ Mode, Username, PublicKey string }
 	if !decode(w, r, &b) {
 		return
 	}

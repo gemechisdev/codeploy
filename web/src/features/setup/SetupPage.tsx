@@ -263,21 +263,108 @@ function HardenStep({ onFinish }: { onFinish: () => void }) {
   );
 }
 
+function ResumeSetupPanel({ initialToken, onResumed }: { initialToken?: string; onResumed: () => void }) {
+  const [tok, setTok] = useState(initialToken ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const cmd = 'sudo -u codeplo codeplo setup-token';
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch('/api/v1/setup/resume', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token: tok.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(typeof body.message === 'string' ? body.message : 'Could not resume setup');
+        return;
+      }
+      onResumed();
+    } catch {
+      setErr('Network error — is the panel reachable?');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-3" noValidate>
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs text-secondary space-y-2">
+        <p className="font-medium text-primary">Setup session missing</p>
+        <p>
+          Your browser no longer has the setup cookie (refresh, cleared site data, or a different browser).
+          Progress on the server is kept — you only need a fresh token to continue.
+        </p>
+        <p>On the server run:</p>
+        <div className="flex items-start gap-2 rounded-md bg-canvas px-2 py-1.5 font-mono text-[11px] text-primary">
+          <code className="flex-1 break-all">{cmd}</code>
+          <CopyButton value={cmd} iconOnly label="Copy command" />
+        </div>
+        <p>Paste the printed token below.</p>
+      </div>
+      <Field label="Setup token">
+        {(a) => (
+          <Input
+            {...a}
+            className="font-mono"
+            autoComplete="off"
+            value={tok}
+            onChange={(e) => setTok(e.target.value)}
+            placeholder="paste token from setup-token"
+          />
+        )}
+      </Field>
+      {err && <p role="alert" className="text-xs text-red-600">{err}</p>}
+      <div className="flex justify-end">
+        <Button type="submit" loading={busy} disabled={!tok.trim()}>Resume setup</Button>
+      </div>
+    </form>
+  );
+}
+
 export function SetupPage() {
   const nav = useNavigate(); const qc = useQueryClient();
   const { token } = useSearch({ from: '/setup' });
   const state = useSetupState(); const complete = useCompleteSetup();
+  const cands = useOperatorCandidates(true);
   const [step, setStep] = useState<Step | null>(null);
+  const [sessionLost, setSessionLost] = useState(false);
   const cur = step ?? fromServer(state.data?.step);
+
+  useEffect(() => {
+    // Mid-wizard steps need a setup cookie; surface a resume panel when it is gone.
+    if (cands.isError && cands.error instanceof ApiError && cands.error.code === 'unauthenticated') {
+      setSessionLost(true);
+    }
+  }, [cands.isError, cands.error]);
+
   if (state.isPending) return <Shell step={0} title="Loading…"><p className="text-xs text-muted">Checking this server…</p></Shell>;
+
   const finishSetup = () => complete.mutate(undefined, { onSuccess: async () => { await qc.fetchQuery({ ...meQueryOptions, staleTime: 0 }); setStep(4); } });
+  const needsResume = sessionLost && cur > 0 && cur < 4;
+
   return (
     <Shell step={cur} title={['Create the owner account', 'Turn on two-factor authentication', 'Panel domain', 'Operator identity', 'Harden this server'][cur]}>
-      {cur === 0 && <OwnerStep initialToken={token} onDone={() => setStep(1)} />}
-      {cur === 1 && <TotpStep onDone={() => setStep(2)} />}
-      {cur === 2 && <DomainStep onDone={() => setStep(3)} />}
-      {cur === 3 && <OperatorStep busy={complete.isPending} onDone={finishSetup} />}
-      {cur === 4 && <HardenStep onFinish={() => void nav({ to: '/' })} />}
+      {needsResume ? (
+        <ResumeSetupPanel
+          initialToken={token}
+          onResumed={() => {
+            setSessionLost(false);
+            void qc.invalidateQueries();
+          }}
+        />
+      ) : (
+        <>
+          {cur === 0 && <OwnerStep initialToken={token} onDone={() => setStep(1)} />}
+          {cur === 1 && <TotpStep onDone={() => setStep(2)} />}
+          {cur === 2 && <DomainStep onDone={() => setStep(3)} />}
+          {cur === 3 && <OperatorStep busy={complete.isPending} onDone={finishSetup} />}
+          {cur === 4 && <HardenStep onFinish={() => void nav({ to: '/' })} />}
+        </>
+      )}
       {complete.isError && <p role="alert" className="text-xs text-red-600">{errorMessage(complete.error)}</p>}
     </Shell>
   );

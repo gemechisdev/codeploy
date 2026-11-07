@@ -146,7 +146,14 @@ func run(cmd string, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("One-time setup token (valid 1 hour, single use):\n%s\nssh -L 7443:127.0.0.1:7443 <host>  then open http://127.0.0.1:7443/setup?token=%s\n", tok, tok)
+		var step string
+		_ = db.QueryRow(`SELECT step FROM setup_state WHERE id=1`).Scan(&step)
+		fmt.Printf("One-time setup token (valid 1 hour, single use):\n%s\n", tok)
+		if step == "admin" || step == "" {
+			fmt.Printf("ssh -L 7443:127.0.0.1:7443 <host>  then open http://127.0.0.1:7443/setup?token=%s\n", tok)
+		} else {
+			fmt.Printf("Setup is in progress (step=%s). Open http://127.0.0.1:7443/setup and paste this token into the Resume box,\nor open http://127.0.0.1:7443/setup?token=%s\n", step, tok)
+		}
 	case "reset-password":
 		if *email == "" {
 			return fmt.Errorf("--email is required")

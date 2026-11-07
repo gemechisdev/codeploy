@@ -38,21 +38,28 @@ func Open(c config.Config) (*sql.DB, []byte, error) {
 	return db, key, err
 }
 
-// IssueSetupToken mints a 256-bit one-time token (stored hashed, expires in 1 h or on first admin creation).
+// IssueSetupToken mints a 256-bit one-time token (stored hashed, expires in 1 h).
+// Before an owner exists it is used by POST /setup/admin. After an owner exists but while
+// setup_state.step is not "done", the same token is accepted by POST /setup/resume to re-bind
+// a setup-scoped session (e.g. after the browser cookie was cleared).
 func IssueSetupToken(ctx context.Context, db *sql.DB) (string, error) {
 	tok := crypto.RandomHex(32)
 	err := store.InTx(ctx, db, func(tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+		var step string
+		if err := tx.QueryRow(`SELECT step FROM setup_state WHERE id=1`).Scan(&step); err != nil {
 			return err
 		}
-		if n > 0 {
+		if step == "done" {
 			return errors.New("setup is finished: an owner already exists")
 		}
 		if _, err := tx.Exec(`UPDATE setup_state SET token_hash=?, token_expires_at=? WHERE id=1`, crypto.HashToken(tok), time.Now().Add(SetupTokenTTL).UTC().Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
-		_, err := audit.Append(ctx, tx, audit.Entry{ActorType: "system", ActorID: "system", Action: "setup.token_issued", TargetType: "system", TargetID: "setup"})
+		action := "setup.token_issued"
+		if step != "admin" && step != "" {
+			action = "setup.token_reissued"
+		}
+		_, err := audit.Append(ctx, tx, audit.Entry{ActorType: "system", ActorID: "system", Action: action, TargetType: "system", TargetID: "setup"})
 		return err
 	})
 	return tok, err
