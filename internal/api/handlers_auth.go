@@ -329,7 +329,11 @@ func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var b struct{ Mode, Username, PublicKey string }
+	var b struct {
+		Mode      string `json:"mode"`
+		Username  string `json:"username"`
+		PublicKey string `json:"public_key"`
+	}
 	if !decode(w, r, &b) {
 		return
 	}
