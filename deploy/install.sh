@@ -132,9 +132,11 @@ OPERATOR_USER="${CODEPLO_OPERATOR_USER:-codeplo-ops}"
 OPERATOR_DIR=/var/lib/codeplo/operator
 if [ "${CODEPLO_NO_OPERATOR:-0}" != 1 ]; then
   [[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "invalid CODEPLO_OPERATOR_USER" >&2; exit 1; }
+  operator_created=0
   if ! id "$OPERATOR_USER" >/dev/null 2>&1; then
     # useradd without -p leaves the password locked: key login only.
     useradd -m -s /bin/bash "$OPERATOR_USER"
+    operator_created=1
   fi
   for g in sudo wheel; do
     if getent group "$g" >/dev/null 2>&1; then usermod -aG "$g" "$OPERATOR_USER"; break; fi
@@ -158,8 +160,12 @@ if [ "${CODEPLO_NO_OPERATOR:-0}" != 1 ]; then
     grep -qxF -f "$OPERATOR_DIR/id_ed25519.pub" "$ak" || cat "$OPERATOR_DIR/id_ed25519.pub" >> "$ak"
     chown "$OPERATOR_USER:$(id -gn "$OPERATOR_USER")" "$ak"; chmod 0600 "$ak"
   fi
+  # `codeplo uninstall` deletes this account only when the marker below exists, i.e. this installer created it.
+  # An account that was already there is never removed. The marker is kept across re-runs.
+  [ "$operator_created" = 1 ] && printf '1\n' > "$OPERATOR_DIR/created"
   printf '%s\n' "$OPERATOR_USER" > "$OPERATOR_DIR/username"
   chown codeplo:codeplo "$OPERATOR_DIR/username"; chmod 0644 "$OPERATOR_DIR/username"
+  [ -f "$OPERATOR_DIR/created" ] && { chown codeplo:codeplo "$OPERATOR_DIR/created"; chmod 0644 "$OPERATOR_DIR/created"; }
   echo "operator: $OPERATOR_USER ready (sudo group, key in $OPERATOR_DIR); the setup wizard will pre-select it." >&2
 fi
 

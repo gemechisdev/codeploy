@@ -32,7 +32,7 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | extensions list|register|dead|check | mcp check [--json] | github-app check|repos | update [--from DIR] [--bin-dir DIR] | rollback [--stamp STAMP] | pty-helper (systemd only)")
+		fmt.Fprintln(os.Stderr, "usage: codeplo doctor [--verify-audit] | reset-password --email E | disable-2fa --email E | status [--hardening] | setup-token | revert <changeId|all> [--list] | cron list|add|remove|history | templates list|check | previews list|check | extensions list|register|dead|check | mcp check [--json] | github-app check|repos | update [--from DIR] [--bin-dir DIR] | rollback [--stamp STAMP] | uninstall [--dry-run] [--yes] [--keep-data] [--remove-workloads] | pty-helper (systemd only)")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1], os.Args[2:]); err != nil {
@@ -83,6 +83,11 @@ func run(cmd string, args []string) error {
 	}
 	if cmd == "rollback" {
 		return rollbackCommand(args)
+	}
+	// uninstall removes the services, files and users the installer created. It runs as root and must work when
+	// the database is damaged or missing, so it never opens the data directory.
+	if cmd == "uninstall" {
+		return uninstallCommand(args)
 	}
 	cfg, err := config.Load()
 	if err != nil {

@@ -177,3 +177,17 @@ frontend suite), and CI has green runs with `go`, `go-arm64` and `web` jobs. Som
 hardware — running this published installer on a fresh VPS, a systemd PTY spike, VM firewall/SSH fault injection,
 real-DNS preview lifecycle, public HTTPS issuance, and a real GitHub App installation. Those are recorded as
 **NOT RUN** in the [verification matrix](docs/site/verification-matrix.md); nothing here claims they passed.
+
+## Uninstall
+
+```bash
+sudo codeplo uninstall --dry-run     # show exactly what would be removed
+sudo codeplo uninstall               # asks you to type "uninstall"
+```
+
+Removes the services and unit files, `/etc/codeplo`, the data directory (`/var/lib/codeplo`), the `codeplo` service
+user, the binaries, and the `codeplo-ops` operator account when the installer created it. Never removes an account
+that already existed. Flags: `--keep-data` (keep data and users so a reinstall resumes), `--remove-workloads`
+(also remove containers, networks and volumes labelled `codeplo.managed=true`), `--revert-hardening` (undo pending
+hardening changes first), `--purge-config` (also remove `/etc/default/codeplod`), `--yes`, `--force`.
+Applied firewall/sshd hardening is not undone. Hosts installed before this command existed can `codeplo update` first.
