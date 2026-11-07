@@ -113,11 +113,17 @@ function DomainStep({ onDone }: { onDone: () => void }) {
 function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
   const cands = useOperatorCandidates();
   const set = useSetOperator();
-  const usable = (cands.data?.items ?? []).filter((c) => c.sudo && c.has_authorized_keys);
+  // has_authorized_keys is unreliable under the daemon's ProtectHome sandbox, so only sudo gates the list.
+  const usable = (cands.data?.items ?? []).filter((c) => c.sudo);
+  const installOp = usable.find((c) => c.username === 'codeplo-ops');
   // Prefer create when nothing is selectable (common on fresh WSL / single-user hosts).
-  const [mode, setMode] = useState<'existing' | 'create'>(usable.length > 0 ? 'existing' : 'create');
+  const [mode, setMode] = useState<'existing' | 'create'>('existing');
   const [user, setUser] = useState('');
   const [key, setKey] = useState('');
+  // Pre-select the operator the installer created so the happy path is a single click.
+  useEffect(() => {
+    if (mode === 'existing' && !user && installOp) setUser(installOp.username);
+  }, [mode, user, installOp]);
   const err = set.error instanceof ApiError ? set.error : null;
 
   const genCmd = 'ssh-keygen -t ed25519 -C "codeplo-operator" -f ~/.ssh/codeplo_operator -N ""';
@@ -136,8 +142,8 @@ function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
       }}
     >
       <p className="text-xs text-secondary">
-        The host terminal runs as a named, non-root operator. Pick an existing sudo user that already has an SSH
-        authorized key, or create one and paste your public key.
+        The host terminal runs as a named, non-root operator. The installer already created <code className="font-mono">codeplo-ops</code> for this — just continue. Advanced: pick
+        another sudo user.
       </p>
 
       <Field label="Operator">
@@ -175,8 +181,7 @@ function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
               <p className="font-medium text-primary">No eligible users found</p>
               <p className="mt-1">
                 A candidate must be a normal login user (uid ≥ 1000), in the <code className="font-mono">sudo</code> group,
-                and have a non-empty <code className="font-mono">~/.ssh/authorized_keys</code>. On fresh WSL or
-                single-user hosts this list is often empty — switch to <strong>Create a new user</strong> instead.
+                Re-run the installer as root to create <code className="font-mono">codeplo-ops</code>, or add a sudo user on this host.
               </p>
             </div>
           )}

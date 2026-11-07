@@ -124,6 +124,45 @@ install -d -m 0700 -o codeplo -g codeplo /var/lib/codeplo
 # group codeplo, so codeplod can read certificate status without being able to change the edge.
 install -d -m 0750 -o codeplo -g codeplo /var/lib/codeplo/caddy
 
+# Default host operator (docs/SETUP_FRICTION_AND_PLAN.md C1). The installer already runs as root, so it creates the
+# named non-root login user, a panel-owned ed25519 key pair and the authorized_keys entry here; the unprivileged
+# daemon cannot (it has no root and ProtectHome hides /home). The setup wizard pre-selects this user.
+# Idempotent: an existing user and key are reused. Skip entirely with CODEPLO_NO_OPERATOR=1.
+OPERATOR_USER="${CODEPLO_OPERATOR_USER:-codeplo-ops}"
+OPERATOR_DIR=/var/lib/codeplo/operator
+if [ "${CODEPLO_NO_OPERATOR:-0}" != 1 ]; then
+  [[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "invalid CODEPLO_OPERATOR_USER" >&2; exit 1; }
+  if ! id "$OPERATOR_USER" >/dev/null 2>&1; then
+    # useradd without -p leaves the password locked: key login only.
+    useradd -m -s /bin/bash "$OPERATOR_USER"
+  fi
+  for g in sudo wheel; do
+    if getent group "$g" >/dev/null 2>&1; then usermod -aG "$g" "$OPERATOR_USER"; break; fi
+  done
+  getent group docker >/dev/null 2>&1 && usermod -aG docker "$OPERATOR_USER"
+  install -d -m 0700 -o codeplo -g codeplo "$OPERATOR_DIR"
+  if [ ! -f "$OPERATOR_DIR/id_ed25519" ]; then
+    if command -v ssh-keygen >/dev/null 2>&1; then
+      ssh-keygen -q -t ed25519 -N "" -C "codeplo-operator" -f "$OPERATOR_DIR/id_ed25519"
+      chown codeplo:codeplo "$OPERATOR_DIR/id_ed25519" "$OPERATOR_DIR/id_ed25519.pub"
+      chmod 0600 "$OPERATOR_DIR/id_ed25519"; chmod 0644 "$OPERATOR_DIR/id_ed25519.pub"
+    else
+      echo "warning: ssh-keygen not found; skipping operator key (install openssh-client and re-run)." >&2
+    fi
+  fi
+  if [ -f "$OPERATOR_DIR/id_ed25519.pub" ]; then
+    op_home="$(getent passwd "$OPERATOR_USER" | cut -d: -f6)"
+    install -d -m 0700 -o "$OPERATOR_USER" -g "$(id -gn "$OPERATOR_USER")" "$op_home/.ssh"
+    ak="$op_home/.ssh/authorized_keys"
+    touch "$ak"
+    grep -qxF -f "$OPERATOR_DIR/id_ed25519.pub" "$ak" || cat "$OPERATOR_DIR/id_ed25519.pub" >> "$ak"
+    chown "$OPERATOR_USER:$(id -gn "$OPERATOR_USER")" "$ak"; chmod 0600 "$ak"
+  fi
+  printf '%s\n' "$OPERATOR_USER" > "$OPERATOR_DIR/username"
+  chown codeplo:codeplo "$OPERATOR_DIR/username"; chmod 0644 "$OPERATOR_DIR/username"
+  echo "operator: $OPERATOR_USER ready (sudo group, key in $OPERATOR_DIR); the setup wizard will pre-select it." >&2
+fi
+
 systemctl daemon-reload
 # Caddy first: codeplod's reconciler pushes routes into its admin socket, and a missing edge must not look like
 # a panel failure. A failed start is reported, not fatal — the SSH tunnel path (§3.12) still reaches the panel.

@@ -378,7 +378,11 @@ func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var b struct{ Mode, Username, PublicKey string }
+	var b struct {
+		Mode      string `json:"mode"`
+		Username  string `json:"username"`
+		PublicKey string `json:"public_key"`
+	}
 	if !decode(w, r, &b) {
 		return
 	}
@@ -396,7 +400,7 @@ func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 			case strings.Contains(msg, "public key"):
 				invalid(w, map[string]string{"public_key": msg})
 			case strings.Contains(msg, "requires root"):
-				writeErr(w, 403, "forbidden", "Creating an operator requires the panel to run as root during setup. Choose an existing sudo user, or re-run setup as root.", nil)
+				writeErr(w, 403, "forbidden", "The panel runs unprivileged and cannot create users. Use the install-time operator (codeplo-ops) or another existing sudo user.", nil)
 			case strings.Contains(msg, "already exists"):
 				invalid(w, map[string]string{"username": "User already exists — choose \"existing\" or a different name"})
 			case strings.Contains(msg, "invalid username"):
@@ -417,7 +421,9 @@ func (s *Server) setupOperator(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if found == nil || !found.Sudo {
-			invalid(w, map[string]string{"username": "Choose a user with sudo access and an authorized_keys file"})
+			// authorized_keys is deliberately not required here: under ProtectHome=true the daemon cannot see /home,
+			// so the flag is unreliable. The hardening helper re-checks key status as root.
+			invalid(w, map[string]string{"username": "Choose a user with sudo access"})
 			return
 		}
 		cand = *found
