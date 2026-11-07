@@ -7,8 +7,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
+      # jsdom 30 pulls undici 8, which calls zlib.createZstdDecompress at module load
+      # and therefore needs Node >= 22.19.0. Node 20 kills every vitest forks worker
+      # before a single test runs. Keep this in lockstep with web/.nvmrc.
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
+        with: { node-version-file: web/.nvmrc, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Node toolchain guard
+        working-directory: web
+        run: node -e "const w=require('fs').readFileSync('.nvmrc','utf8').trim();if(process.versions.node!==w){console.error('expected Node '+w+' (jsdom/undici need >=22.22.2), got '+process.versions.node);process.exit(1)}console.log('node '+w)"
       - run: pip install pyyaml
       - name: install web deps
         run: cd web && npm ci
@@ -40,7 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
+        with: { node-version-file: web/.nvmrc, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Node toolchain guard
+        working-directory: web
+        run: node -e "const w=require('fs').readFileSync('.nvmrc','utf8').trim();if(process.versions.node!==w){console.error('expected Node '+w+' (jsdom/undici need >=22.22.2), got '+process.versions.node);process.exit(1)}console.log('node '+w)"
       - run: cd web && npm ci
       - run: cd web && npm run lint
       # check:mock-free / check:external / check:size all read dist/, so the live build comes first.
