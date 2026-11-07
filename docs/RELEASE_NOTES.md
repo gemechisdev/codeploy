@@ -1,9 +1,32 @@
-# Release notes (development)
+# Release notes — v1.2.0 (first public release)
 
-**The first public tag has not been pushed yet.** `.github/workflows/release.yml` has never executed on a tag, so no
-signed artefact exists at this commit. Everything below describes code in the tree and the release that is about to be
-published, not a shipped download. The published result is recorded in `PROGRESS.md` and
-`docs/site/verification-matrix.md` once the tag run finishes.
+**Published 2026-11-07.** The annotated tag `v1.2.0` points at `f8364a3`; `.github/workflows/release.yml` run
+`42349115778` completed successfully on it and published
+<https://github.com/gemechisdev/codeploy/releases/tag/v1.2.0> as a non-draft, non-prerelease release with 13
+downloadable assets. The "not yet published" text this note replaced was accurate at the release commit itself, but
+is no longer the state of `main`.
+
+## Published release — verified, not assumed
+
+| Check | Result |
+|---|---|
+| CI on the release commit `f8364a3` (run `42348902525`) | `go`, `go-arm64` and `web` all `completed success` |
+| `release.yml` on `v1.2.0` (run `42349115778`) | `completed success` — GoReleaser multi-arch build, `dist-pack` reuse, cosign install, keyless signing, in-job verification and the explicit asset upload all passed |
+| Release metadata | `draft=false`, `prerelease=false`, `published_at=2026-11-07T06:57:18Z` |
+| Assets | exactly 13, every one `state=uploaded`; no GoReleaser metadata (`metadata.json` etc.) exposed as an operator download |
+| Downloadability | all 13 assets returned `HTTP 206` to byte-range requests from `release-assets.githubusercontent.com` |
+| `releases/latest/download/install.sh` | `HTTP 200`, 9530 bytes, byte-identical to `deploy/install.sh` (`INSTALLER_MATCH=True`) |
+| `checksums.txt` | 9 lines: `codeplod_linux_{amd64,arm64}`, `codeplo_linux_{amd64,arm64}`, `codeplod.service`, `codeplo-caddy.service`, `caddy-bootstrap.json`, `codeplo-pty.socket`, `codeplo-pty@.service` |
+
+The 13 assets are: `codeplod_linux_amd64`, `codeplod_linux_arm64`, `codeplo_linux_amd64`, `codeplo_linux_arm64`,
+`checksums.txt`, `checksums.txt.sig`, `checksums.txt.pem`, `codeplod.service`, `codeplo-caddy.service`,
+`caddy-bootstrap.json`, `codeplo-pty.socket`, `codeplo-pty@.service` and `install.sh`.
+
+**Not claimed by this verification:** the one-line installer was **not** executed against a fresh VPS in this pass,
+and no signature was re-verified with a locally installed `cosign`. The workflow's own `cosign verify-blob` step did
+pass, and a local `openssl x509` attempt on `checksums.txt.pem` failed to decode the downloaded certificate — that
+was an optional inspection on a Windows host, not a release gate. An end-to-end install on a real systemd host
+remains owed (see below).
 
 ## Known measurement gaps (do not silent-tune)
 
@@ -34,7 +57,7 @@ curl -fsSL https://github.com/gemechisdev/codeploy/releases/latest/download/inst
 `codeplo update` uses the same official/latest source by default; `codeplo rollback` restores a `VACUUM INTO`
 snapshot and the previous binaries.
 
-## Release pipeline (implemented, not yet run on a tag)
+## Release pipeline (executed on v1.2.0)
 
 - `.goreleaser.yaml` builds raw `codeplod_linux_{amd64,arm64}` and `codeplo_linux_{amd64,arm64}` binaries
   directly into `dist/` (`no_unique_dist_dir: true`), with no archives. Its `before.hooks` build the SPA with
@@ -50,8 +73,8 @@ snapshot and the previous binaries.
   metadata files are not presented as operator downloads. A workflow re-run replaces existing assets.
 - `deploy/install.sh` verifies all seven architecture-specific payloads against `checksums.txt` before writing
   anything, then waits up to 30 s for `/api/v1/setup/state` to answer.
-- `ci.yml` has a `go-arm64` job on `ubuntu-24.04-arm` (T66). CI run `42343047804` on `0178c65` is green on `go`,
-  `go-arm64` and `web`.
+- `ci.yml` has a `go-arm64` job on `ubuntu-24.04-arm` (T66). CI run `42343047804` on `0178c65` and run
+  `42348902525` on the release commit `f8364a3` are both green on `go`, `go-arm64` and `web`.
 
 ## Toolchain
 
@@ -72,5 +95,7 @@ snapshot and the previous binaries.
 
 ## Still owed before calling the host matrix complete
 
-T44–T52 host matrix, T62 live-mode frontend pass against a real daemon, and a real tagged `release.yml` run with
-cosign verification end to end. See `docs/site/verification-matrix.md`.
+T44–T52 host matrix, T62 live-mode frontend pass against a real daemon, and an end-to-end run of this published
+installer on a fresh systemd VPS (download → SHA-256 / optional cosign verification → unit files →
+`/api/v1/setup/state` → browser setup). The tagged `release.yml` run with in-job cosign verification is **done**
+(`42349115778`) and is no longer on this list. See `docs/site/verification-matrix.md`.

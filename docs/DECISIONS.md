@@ -1090,3 +1090,31 @@ No tags or releases existed. `web/package.json`, the seeded module version and t
 `1.2.0`, so the first public tag is `v1.2.0` rather than inventing a new version. A later release can move all
 three together.
 
+## Post-release pass — judgment calls (2026-11-07)
+
+### `v1.2.0` is immutable; the status fix goes on `main` instead
+
+After the tag was pushed, `PROGRESS.md` and `docs/RELEASE_NOTES.md` still said the first tag had not been pushed.
+That text was true at the commit it describes, but false once the release existed. Decision: do **not** move or
+recreate the tag, do not force-push, and do not rewrite history. Record the published facts in a new documentation
+commit on `main` and label the pre-tag sections as point-in-time. A documentation-only commit needs no new release;
+a future code release can carry `v1.2.1` and move `web/package.json`, the seeded module version and the examples
+together.
+
+### Publication is proven from the release, not from the workflow alone
+
+A green `release.yml` run is not by itself proof that an operator can download anything. Decision: the post-release
+record cites the release metadata (`draft=false`, `prerelease=false`, 13 assets all `uploaded`), a byte-range HTTP
+`206` check on every asset, the `releases/latest/download/install.sh` alias returning `200` with a byte-for-byte
+match to `deploy/install.sh`, and the 9-line `checksums.txt`. The CI run on the release commit and the tag's
+workflow run are listed separately so the two are not conflated.
+
+### An unverified installer execution is reported as NOT RUN
+
+The one-line installer was validated syntactically, its URL/identity branches were simulated, and its release asset
+was downloaded — but it was never executed against a fresh VPS in this pass. The earlier P2a systemd-host evidence
+in `TEST_REPORT.md` describes a previous installer, not this published one. Decision: mark the host-side install as
+**NOT RUN** in the verification matrix rather than inherit an older claim, and keep the local `openssl x509`
+certificate decode failure as an explicitly disclosed, non-blocking workstation artifact instead of quietly
+dropping it.
+

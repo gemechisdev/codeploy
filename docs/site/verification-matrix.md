@@ -3,8 +3,10 @@
 Status of this document: **mixed — see each row**. This file was originally written when no test suite had been
 run; that is no longer true. Local gates, the generated-drift check and GitHub Actions have all executed since, and
 two CI failures were found and fixed. CI run `42343047804` on `0178c65` is now green on `go`, `go-arm64` and `web`.
-Rows that need a VM, a Docker daemon, DNS, a public domain, a GitHub App installation or a live daemon remain
-**NOT RUN** and are labelled as such; nothing here claims a host measurement that did not happen.
+The tagged release pipeline has also executed: `release.yml` run `42349115778` published `v1.2.0` with 13 verified
+assets (see "Public release v1.2.0" below). Rows that need a VM, a Docker daemon, DNS, a public domain, a GitHub
+App installation, a live daemon or a real VPS install remain **NOT RUN** and are labelled as such; nothing here
+claims a host measurement that did not happen.
 
 What has actually been executed (2026-11-07, Windows dev host unless noted):
 `go build ./...`, `go vet ./...`, `go test ./...`, `make gen-check`, `make migrate-check`'s
@@ -86,7 +88,8 @@ fixed. CI run `42343047804` on `0178c65` is a confirmed all-green re-run on `go`
 | `go` job: `make lint`, `go test -race ./...`, authz matrix, `make build` | **CONFIRMED GREEN** — run `42343047804` |
 | `go-arm64` job (`go test ./...` + `GOARCH=arm64 go build ./...`) (T66) | **CONFIRMED GREEN** — run `42343047804` on `ubuntu-24.04-arm` |
 | `workflow_dispatch` `.github/workflows/memory-budget.yml` (idle RSS, report-only) | NOT RUN |
-| `.github/workflows/release.yml` — GoReleaser + cosign keyless signing on a real tag | NOT RUN — the first tag is being prepared; see `docs/RELEASE_NOTES.md` |
+| `.github/workflows/release.yml` — GoReleaser + cosign keyless signing on a real tag | **CONFIRMED GREEN (2026-11-07)** — run `42349115778` on tag `v1.2.0`: multi-arch build, `dist-pack` reuse, keyless signing, in-job `cosign verify-blob` and the explicit 13-asset upload all passed. All 13 assets `uploaded` and byte-range downloadable; see "Public release v1.2.0" |
+| Running the published `install.sh` on a fresh systemd VPS | **NOT RUN** — the script was syntax-, URL- and identity-checked and downloaded, but never executed against a host |
 
 ## T50 — Profile B and C measurements
 
@@ -156,3 +159,21 @@ repo — no `deploy/`, `test/spikes/` or `scripts/` artefact declares them, and 
 headers only reference `/root` for logs (`test/spikes/p3_hostpty_spike_test.go` runs `/root/spikee`; HANDOFF_NOTES
 §2 says to put logs under `/root`). T70 remains open: either remove the four paths on the WSL host or add a
 committed fixture manifest that owns them. Neither the cleanup nor that decision was executed here — status NOT RUN.
+
+## Public release v1.2.0 (2026-11-07)
+
+Gate: a pushed annotated tag and a GitHub-hosted runner with OIDC. Both happened. The tag object is
+`5de61e78756b47fa15803336523507fb518e37de`, the annotated tag `v1.2.0` targets `f8364a3`, and CI run `42348902525`
+on that commit was green on `go`, `go-arm64` and `web` before the tag was pushed.
+
+| Step / command (from repo) | Status |
+|---|---|
+| `release.yml` run `42349115778` on `v1.2.0` | **CONFIRMED GREEN** — `completed / success`; all 13 steps succeeded, including GoReleaser build, `make dist-pack DIST_FROM_GORELEASER=1`, cosign install, keyless signing and the asset upload |
+| `cosign verify-blob` inside the release job | **RAN, PASSED** — `checksums.txt.sig` / `.pem` verified against the pinned workflow OIDC identity |
+| Release metadata via the GitHub API | **VERIFIED** — `draft=false`, `prerelease=false`, `published_at=2026-11-07T06:57:18Z`, `https://github.com/gemechisdev/codeploy/releases/tag/v1.2.0` |
+| Asset inventory | **VERIFIED** — exactly 13 assets, all `state=uploaded`, none missing, none extra; no GoReleaser metadata uploaded as a download |
+| Byte-range download of every asset | **VERIFIED** — all 13 returned `HTTP 206` from `release-assets.githubusercontent.com` |
+| `releases/latest/download/install.sh` | **VERIFIED** — `HTTP 200`, 9530 bytes, byte-identical to `deploy/install.sh` |
+| `checksums.txt` contents | **VERIFIED** — 9 lines, exactly the four binaries, two service units, bootstrap JSON and two PTY units |
+| Local `openssl x509 -in checksums.txt.pem` | **FAILED (workstation artifact, non-blocking)** — Windows OpenSSL could not decode the downloaded certificate; the workflow's own cosign verification passed and the asset is public. A proper local inspection needs `cosign`, not `openssl x509` |
+| `curl -fsSL .../install.sh \| sudo bash` on a fresh VPS | **NOT RUN** — no systemd host was used in this pass; the older P2a installer evidence in `TEST_REPORT.md` describes a different script |

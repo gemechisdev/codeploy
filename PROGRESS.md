@@ -6,12 +6,15 @@ apply through the real `store.Migrate` path, and the local gate chain has been e
 full frontend gate chain (lint, live-mode build, `check:mock-free`, `check:external`, `check:size`, 94 vitest
 tests). GitHub Actions has also run and reported two real failures — generated-file drift and a Node 20 frontend
 engine mismatch — both root-caused and fixed. A later all-green CI run on `0178c65` has now been observed: `go`,
-`go-arm64` and `web` all completed successfully.
+`go-arm64` and `web` all completed successfully. The public release is also out: annotated tag `v1.2.0` on
+`f8364a3`, `release.yml` run `42349115778` completed success, and all 13 release assets were verified as uploaded
+and downloadable. See "v1.2.0 published" at the end of this file.
 
 **What is still NOT RUN:** the host-facing matrix — spike E host PTY (T44), P2b/P2c VM fault injection (T45), real
 Docker deploy/fault injection (T46), real-DNS preview lifecycle (T47), public panel HTTPS (T48), Profile B/C
 measurements (T50), the reusable GH Actions deploy workflow (T51), a real GitHub App install (T52), a live-mode
-frontend click-through against a running daemon (T62), and `release.yml` on a real tag (T63–T66). See
+frontend click-through against a running daemon (T62), and the one-line installer on a fresh systemd VPS. The
+`release.yml` tagged run (T63–T66) is **no longer** on this list: it executed and passed. See
 `docs/site/verification-matrix.md` for the per-row status. Nothing here claims a host measurement that did not
 happen.
 
@@ -175,6 +178,10 @@ port changes never automated. **Apply stays flag-gated (default plan-only) until
 passes**, which is the plan's own gate.
 
 ## Open across the project
+
+> **Status note (2026-11-07):** this is the historical "open items" list from the P2/P3 build record. Its claims
+> that CI never ran, no signed release existed and Phase 4 had no tests were true then and are superseded now —
+> see the header of this file, "v1.2.0 published" and `FUTURE_PROGRESS.md` §1. It is kept verbatim as history.
 
 - VM lab (`test/vm/*`) for the hardening fault-injection matrix; release gate for P2b/P2c.
 - CI has never run on a runner (also the only place the RSS budget is meaningful).
@@ -584,9 +591,10 @@ Evidence actually produced on this host. Each "PASS" is an executed command, not
 
 ## Public release pass (2026-11-07)
 
-**Status at this commit:** the one-line installer, README, release asset list, official repo URLs, pinned cosign
-identity and `codeplo update` source are implemented; the first tag has not yet been pushed through `release.yml`.
-CI run `42343047804` on `0178c65` is green on `go`, `go-arm64` and `web`.
+**Status at commit `f8364a3` (before the tag push):** the one-line installer, README, release asset list, official
+repo URLs, pinned cosign identity and `codeplo update` source are implemented; the first tag had not yet been
+pushed through `release.yml`. CI run `42343047804` on `0178c65` is green on `go`, `go-arm64` and `web`. The
+publication that followed is recorded in "v1.2.0 published" below.
 
 | Gate / item | Result |
 |---|---|
@@ -608,4 +616,30 @@ Release implementation files: `README.md`, `deploy/install.sh`, `Makefile`, `.go
 `.github/workflows/release.yml`, `cmd/codeplo/update.go`, `cmd/codeplo/update_url_test.go`, plus the refreshed
 `docs/ENV.md`, `docs/site/operator-guide.md`, `docs/DECISIONS.md`, `FUTURE_TASKS.md`, `FUTURE_PROGRESS.md`,
 `docs/site/verification-matrix.md` and this file.
+
+## v1.2.0 published (2026-11-07, verified after the tag push)
+
+The release implementation above was committed as `f8364a3` and pushed to `origin main`; CI run `42348902525` on
+it was green on `go`, `go-arm64` and `web`. The annotated tag `v1.2.0` (object
+`5de61e78756b47fa15803336523507fb518e37de`) was then pushed, targeting `f8364a3`, and `release.yml` run
+`42349115778` completed successfully on it.
+
+| Check | Result |
+|---|---|
+| `release.yml` on `v1.2.0` | **PASS** — all steps green: GoReleaser multi-arch build, `dist-pack` reuse, cosign install, keyless signing, in-job verification, explicit asset upload |
+| Public release metadata | **PASS** — non-draft, non-prerelease, published `2026-11-07T06:57:18Z`, <https://github.com/gemechisdev/codeploy/releases/tag/v1.2.0> |
+| Exactly 13 assets, all `uploaded` | **PASS** — no missing, no extra, no GoReleaser metadata exposed as a download |
+| All 13 assets byte-range downloadable | **PASS** — `HTTP 206` from `release-assets.githubusercontent.com` for each |
+| `releases/latest/download/install.sh` | **PASS** — `HTTP 200`, 9530 bytes, byte-identical to `deploy/install.sh` |
+| `checksums.txt` | **PASS** — 9 lines with exactly the expected four binaries and five static artefacts |
+
+The four binaries are `codeplod_linux_{amd64,arm64}` and `codeplo_linux_{amd64,arm64}`; the other assets are
+`checksums.txt{.sig,.pem}`, `codeplod.service`, `codeplo-caddy.service`, `caddy-bootstrap.json`,
+`codeplo-pty.socket`, `codeplo-pty@.service` and `install.sh`.
+
+**Still NOT RUN:** executing the published one-line installer on a fresh systemd VPS, plus the T44–T52 host matrix,
+T62 live-daemon frontend pass and T70 WSL fixture decision. A local `openssl x509` attempt on the downloaded
+`checksums.txt.pem` failed to decode the certificate on this Windows host; that is a non-blocking workstation
+artifact (the workflow's `cosign verify-blob` passed), not a claimed verification. `v1.2.0` was not moved or
+rewritten for this documentation-only update.
 

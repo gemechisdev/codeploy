@@ -1,8 +1,9 @@
 # Operator guide
 
-> Status: written from the implemented code. The install/HTTPS/VM procedures below have **not** been re-verified on
-> a fresh host in this session; `docs/site/verification-matrix.md` records exactly which host checks are still
-> NOT RUN.
+> Status: written from the implemented code. `v1.2.0` is now a published public release
+> (`release.yml` run `42349115778`, 13 verified assets), but the install/HTTPS/VM procedures below have **not**
+> been re-verified on a fresh host in this session — in particular the published one-line installer has not been
+> executed against a VPS. `docs/site/verification-matrix.md` records exactly which host checks are still NOT RUN.
 
 ## Install
 

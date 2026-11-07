@@ -80,7 +80,8 @@ for the backup directory `<data-dir>/update-backups/<stamp>/`.
 | `CODEPLO_COSIGN_IDENTITY` | _(pinned to the official release workflow)_ | Override the certificate identity regexp for a fork |
 | `CODEPLO_COSIGN_ISSUER` | `https://token.actions.githubusercontent.com` | OIDC issuer for cosign |
 
-Both `install.sh` and `codeplo update` now default to the official repo's latest release. When `cosign` is
+The official repo's latest release is currently `v1.2.0` (published 2026-11-07, `release.yml` run `42349115778`,
+13 verified downloadable assets). Both `install.sh` and `codeplo update` default to it. When `cosign` is
 installed, both verify `checksums.txt` against the pinned workflow identity automatically; without cosign they
 warn and still enforce every SHA-256 checksum.
 

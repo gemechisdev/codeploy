@@ -9,6 +9,10 @@ TOTP-gated, audited API.
 - Loopback-only listener (`127.0.0.1:7443`); public HTTPS is added by Caddy once you set a panel domain
 - SQLite with forward-only migrations, an append-only hash-chained audit log, write-only secrets
 
+**Latest public release:** [`v1.2.0`](https://github.com/gemechisdev/codeploy/releases/tag/v1.2.0), published
+2026-11-07 by `release.yml` with a keyless-signed `checksums.txt` — amd64/arm64 binaries, systemd units and the
+installer, all downloadable from the release.
+
 ## Install on a VPS — one command
 
 ```bash
@@ -166,9 +170,10 @@ make dist               # produces the full release artefact set in dist/
 
 ### Honest status
 
-The binaries are published from a signed, automated release workflow. Local gates pass (`go build`, `go vet`,
-`go test ./...`, the full race tree, `make gen-check`, migrations to v8, and the frontend suite), and CI has a green
-run with `go`, `go-arm64` and `web` jobs. Some host-level
-checks still require real hardware — a systemd PTY spike, VM firewall/SSH fault injection, real-DNS preview
-lifecycle, public HTTPS issuance, and a real GitHub App installation. Those are recorded as **NOT RUN** in the
-[verification matrix](docs/site/verification-matrix.md); nothing here claims they passed.
+`v1.2.0` is published from a signed, automated release workflow: 13 downloadable assets, all verified as uploaded
+and byte-range retrievable, with `releases/latest/download/install.sh` byte-matching the repository script. Local
+gates pass (`go build`, `go vet`, `go test ./...`, the full race tree, `make gen-check`, migrations to v8, and the
+frontend suite), and CI has green runs with `go`, `go-arm64` and `web` jobs. Some checks still require real
+hardware — running this published installer on a fresh VPS, a systemd PTY spike, VM firewall/SSH fault injection,
+real-DNS preview lifecycle, public HTTPS issuance, and a real GitHub App installation. Those are recorded as
+**NOT RUN** in the [verification matrix](docs/site/verification-matrix.md); nothing here claims they passed.
