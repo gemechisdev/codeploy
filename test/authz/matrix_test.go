@@ -13,7 +13,7 @@ import (
 var publicAllowed = map[string]bool{
 	"GET /setup/state": true, "POST /setup/admin": true, "POST /setup/totp/enroll": true, "POST /setup/totp/verify": true,
 	"POST /setup/verify-domain": true, "POST /setup/panel-domain": true, "GET /setup/operator-candidates": true,
-	"POST /setup/operator": true, "POST /setup/complete": true, "POST /auth/login": true, "POST /auth/totp/verify": true,
+	"POST /setup/operator": true, "POST /setup/complete": true, "POST /setup/resume": true, "POST /auth/login": true, "POST /auth/totp/verify": true,
 	"POST /webhooks/github": true, "POST /hooks/deploy/{token}": true,
 }
 

@@ -2168,6 +2168,17 @@ type SetupAdminRequest struct {
 	Token    string `json:"token"`
 }
 
+// SetupResumeRequest defines model for SetupResumeRequest.
+type SetupResumeRequest struct {
+	Token string `json:"token"`
+}
+
+// SetupResumeResult defines model for SetupResumeResult.
+type SetupResumeResult struct {
+	Resumed bool   `json:"resumed"`
+	Step    string `json:"step"`
+}
+
 // SetupState defines model for SetupState.
 type SetupState struct {
 	HasOperator   bool           `json:"has_operator"`
@@ -2620,6 +2631,9 @@ type PatchSettingsJSONRequestBody = Settings
 
 // CreateSetupAdminJSONRequestBody defines body for CreateSetupAdmin for application/json ContentType.
 type CreateSetupAdminJSONRequestBody = SetupAdminRequest
+
+// ResumeSetupJSONRequestBody defines body for ResumeSetup for application/json ContentType.
+type ResumeSetupJSONRequestBody = SetupResumeRequest
 
 // SetOperatorJSONRequestBody defines body for SetOperator for application/json ContentType.
 type SetOperatorJSONRequestBody = SetOperatorRequest

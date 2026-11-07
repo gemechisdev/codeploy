@@ -112,6 +112,37 @@ paths:
           $ref: '#/components/responses/E409'
         '429':
           $ref: '#/components/responses/E429'
+  /setup/resume:
+    post:
+      operationId: resumeSetup
+      summary: Re-bind a setup session after the cookie was lost (token from `codeplo setup-token`)
+      tags:
+      - setup
+      x-permission: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupResumeRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResumeResult'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '409':
+          $ref: '#/components/responses/E409'
+        '429':
+          $ref: '#/components/responses/E429'
   /setup/totp/enroll:
     post:
       operationId: enrollSetupTotp
@@ -3592,6 +3623,25 @@ components:
       - token
       - email
       - password
+    SetupResumeRequest:
+      type: object
+      properties:
+        token:
+          type: string
+      additionalProperties: false
+      required:
+      - token
+    SetupResumeResult:
+      type: object
+      properties:
+        step:
+          type: string
+        resumed:
+          type: boolean
+      additionalProperties: false
+      required:
+      - step
+      - resumed
     TotpEnrollment:
       type: object
       properties:

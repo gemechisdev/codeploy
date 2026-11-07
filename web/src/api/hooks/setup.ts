@@ -37,3 +37,8 @@ export function useCompleteSetup() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: () => call(api.POST('/setup/complete')), onSuccess: inv(qc) });
 }
+
+export function useResumeSetup() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (token: string) => call(api.POST('/setup/resume', { body: { token } })), onSuccess: inv(qc) });
+}

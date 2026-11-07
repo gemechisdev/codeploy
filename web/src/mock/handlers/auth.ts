@@ -98,11 +98,17 @@ export function registerAuth() {
       if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(name)) f.username = 'Lowercase letters, digits, "-" and "_" (max 32)';
       if (!/^ssh-(ed25519|rsa) /.test(String(b.public_key ?? ''))) f.public_key = 'Paste an SSH public key (ssh-ed25519 …)';
       if (Object.keys(f).length) throw invalid(f);
-    } else if (!['ubuntu', 'ops-deployer'].includes(name)) throw invalid({ username: 'Choose a user with sudo access and an authorized_keys file' });
+    } else if (!['ubuntu', 'ops-deployer'].includes(name)) throw invalid({ username: 'Choose a user with sudo access' });
     c.db.operator = name;
     refreshOperatorCheck(c.db);
     c.db.setup.step = 'audit';
     return ok({ username: name, uid: 1001, sudo: true, has_authorized_keys: true });
+  });
+  route('POST', '/setup/resume', null, (c) => {
+    if (!c.db.setup.required) throw new HttpError(404, 'not_found', 'Setup is disabled: an owner already exists');
+    if (!c.db.setup.admin_id) throw new HttpError(409, 'conflict', 'No owner yet — use the setup token with Create owner instead');
+    if (c.body?.token !== c.db.setup.token) throw new HttpError(403, 'forbidden', 'The one-time setup token is invalid or expired');
+    return ok({ step: c.db.setup.step, resumed: true });
   });
   route('POST', '/setup/complete', null, (c) => {
     requireSetup(c);

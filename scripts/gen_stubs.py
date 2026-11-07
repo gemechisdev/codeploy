@@ -3,7 +3,7 @@
 Requires PyYAML. Routes implemented in P1 are listed in CORE and skipped."""
 import re, yaml
 d = yaml.safe_load(open('api/openapi.yaml'))
-CORE = {'/setup/state','/setup/admin','/setup/totp/enroll','/setup/totp/verify','/setup/verify-domain','/setup/panel-domain','/setup/operator-candidates','/setup/operator','/setup/complete','/auth/login','/auth/totp/verify','/auth/me','/auth/step-up','/auth/logout','/users','/users/{id}','/tokens','/tokens/{id}','/roles','/permissions','/audit','/audit/verify','/system/status','/system/version','/modules','/modules/{key}','/feature-flags','/settings','/events'}
+CORE = {'/setup/state','/setup/admin','/setup/resume','/setup/totp/enroll','/setup/totp/verify','/setup/verify-domain','/setup/panel-domain','/setup/operator-candidates','/setup/operator','/setup/complete','/auth/login','/auth/totp/verify','/auth/me','/auth/step-up','/auth/logout','/users','/users/{id}','/tokens','/tokens/{id}','/roles','/permissions','/audit','/audit/verify','/system/status','/system/version','/modules','/modules/{key}','/feature-flags','/settings','/events'}
 def mod(p):
     for pre, m in [('/hardening','hardening'),('/edge','edge'),('/domains','edge'),('/terminal','terminal'),('/git','git'),('/webhooks','git'),('/hooks','git'),('/notifications','notify'),('/alerts','notify'),('/backups','databases'),('/templates','templates')]:
         if p.startswith(pre): return m

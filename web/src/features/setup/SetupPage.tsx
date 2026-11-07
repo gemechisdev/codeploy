@@ -4,7 +4,7 @@ import { Check } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { meQueryOptions } from '@/api/hooks/auth';
 import { useHardeningChecks, useRunAudit } from '@/api/hooks/hardening';
-import { useCompleteSetup, useCreateAdmin, useEnrollTotp, useOperatorCandidates, useSetOperator, useSetPanelDomain, useSetupState, useVerifyDomain, useVerifySetupTotp } from '@/api/hooks/setup';
+import { useCompleteSetup, useCreateAdmin, useEnrollTotp, useOperatorCandidates, useResumeSetup, useSetOperator, useSetPanelDomain, useSetupState, useVerifyDomain, useVerifySetupTotp } from '@/api/hooks/setup';
 import { ApiError, errorMessage } from '@/api/errors';
 import { CopyButton } from '@/components/app/CopyButton';
 import { DeadManBanner } from '@/components/app/DeadManBanner';
@@ -270,30 +270,13 @@ function HardenStep({ onFinish }: { onFinish: () => void }) {
 
 function ResumeSetupPanel({ initialToken, onResumed }: { initialToken?: string; onResumed: () => void }) {
   const [tok, setTok] = useState(initialToken ?? '');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const resume = useResumeSetup();
+  const busy = resume.isPending;
+  const err = resume.error ? errorMessage(resume.error) : null;
   const cmd = 'sudo -u codeplo codeplo setup-token';
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true); setErr(null);
-    try {
-      const res = await fetch('/api/v1/setup/resume', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ token: tok.trim() }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(typeof body.message === 'string' ? body.message : 'Could not resume setup');
-        return;
-      }
-      onResumed();
-    } catch {
-      setErr('Network error — is the panel reachable?');
-    } finally {
-      setBusy(false);
-    }
+    resume.mutate(tok.trim(), { onSuccess: onResumed });
   };
   return (
     <form onSubmit={submit} className="space-y-3" noValidate>

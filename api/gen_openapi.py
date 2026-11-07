@@ -67,6 +67,8 @@ schemas = {
  "SetupState": obj({"setup_required": b, "token_valid": b, "step": enum("token", "admin", "totp", "domain", "operator", "audit", "done"),
                     "has_operator": b}, ["setup_required", "step", "has_operator"]),
  "SetupAdminRequest": obj({"token": s, "email": s, "password": s}, ["token", "email", "password"]),
+ "SetupResumeRequest": obj({"token": s}, ["token"]),
+ "SetupResumeResult": obj({"step": s, "resumed": b}, ["step", "resumed"]),
  "TotpEnrollment": obj({"secret": s, "otpauth_uri": s}, ["secret", "otpauth_uri"]),
  "TotpCodeRequest": obj({"code": s}, ["code"]),
  "RecoveryCodes": obj({"recovery_codes": arr(s)}, ["recovery_codes"]),
@@ -245,6 +247,7 @@ LIM = [Q("limit", i), Q("cursor")]
 # setup
 op("get", "/setup/state", "getSetupState", None, "Setup state", res="SetupState", public=True)
 op("post", "/setup/admin", "createSetupAdmin", None, "Create owner (needs one-time token; works once)", req="SetupAdminRequest", res="User", status="201", public=True)
+op("post", "/setup/resume", "resumeSetup", None, "Re-bind a setup session after the cookie was lost (token from `codeplo setup-token`)", req="SetupResumeRequest", res="SetupResumeResult", public=True)
 op("post", "/setup/totp/enroll", "enrollSetupTotp", None, "Begin TOTP enrollment", res="TotpEnrollment", public=True)
 op("post", "/setup/totp/verify", "verifySetupTotp", None, "Verify TOTP, return recovery codes once", req="TotpCodeRequest", res="RecoveryCodes", public=True)
 op("post", "/setup/verify-domain", "verifySetupDomain", None, "DNS check for the panel domain", req="VerifyDomainRequest", res="VerifyDomainResult", public=True)

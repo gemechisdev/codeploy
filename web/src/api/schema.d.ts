@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/setup/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-bind a setup session after the cookie was lost (token from `codeplo setup-token`) */
+        post: operations["resumeSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/setup/totp/enroll": {
         parameters: {
             query?: never;
@@ -1672,6 +1689,13 @@ export interface components {
             email: string;
             password: string;
         };
+        SetupResumeRequest: {
+            token: string;
+        };
+        SetupResumeResult: {
+            step: string;
+            resumed: boolean;
+        };
         TotpEnrollment: {
             secret: string;
             otpauth_uri: string;
@@ -2533,6 +2557,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            403: components["responses"]["E403"];
+            404: components["responses"]["E404"];
+            409: components["responses"]["E409"];
+            422: components["responses"]["E422"];
+            429: components["responses"]["E429"];
+        };
+    };
+    resumeSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupResumeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupResumeResult"];
                 };
             };
             403: components["responses"]["E403"];
