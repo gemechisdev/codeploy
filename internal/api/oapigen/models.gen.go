@@ -2245,11 +2245,13 @@ type TemplateList struct {
 
 // TerminalSession defines model for TerminalSession.
 type TerminalSession struct {
-	AsUser     string                `json:"as_user"`
-	EndedAt    *time.Time            `json:"ended_at"`
-	Id         string                `json:"id"`
-	Ip         string                `json:"ip"`
-	IsRoot     bool                  `json:"is_root"`
+	AsUser  string     `json:"as_user"`
+	EndedAt *time.Time `json:"ended_at"`
+	Id      string     `json:"id"`
+	Ip      string     `json:"ip"`
+	IsRoot  bool       `json:"is_root"`
+
+	// Recorded Always false in this build. Byte-level session recording (E4) is not implemented; the field is retained so clients do not break when recording ships behind terminal.record_sessions.
 	Recorded   bool                  `json:"recorded"`
 	StartedAt  time.Time             `json:"started_at"`
 	Target     TerminalSessionTarget `json:"target"`

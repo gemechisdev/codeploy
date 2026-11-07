@@ -7,21 +7,24 @@ GEN_FILES := web/src/api/schema.d.ts internal/api/stubs_gen.go internal/api/oapi
 
 .PHONY: gen gen-check lint test test-web migrate-check build run web dist dist-pack
 
-# gen: TS client types from openapi.yaml, later-phase route stubs (Go) from the same file.
+# One definition for both targets: a change to api/openapi.yaml must regenerate all three files.
+# The generators are pinned (web/package-lock.json openapi-typescript 7.13.0, go:generate @v2.8.0),
+# so a clean checkout and CI produce byte-identical output. No recursive $(MAKE): its value contains
+# spaces on the Windows GnuWin32 host, which /bin/sh cannot parse.
 # oapi-codegen generates models only (api/oapi-codegen.yaml); handlers are hand-written, see docs/DECISIONS.md.
+GEN_CMD := (cd web && npm run gen:api) && python3 scripts/gen_stubs.py && go generate ./internal/api/oapigen
+
 gen:
-	cd web && npm run gen:api
-	python3 scripts/gen_stubs.py
-	go generate ./internal/api/oapigen
+	$(GEN_CMD)
 
 # gen-check: explicit md5 idempotence + drift check for the three generated files.
 # Generate twice and compare hashes: fail if generation is non-deterministic or committed files are stale.
 gen-check:
 	@set -eu; \
 	before=$$(md5sum $(GEN_FILES)); \
-	$(MAKE) gen >/dev/null; \
+	{ $(GEN_CMD); } >/dev/null; \
 	first=$$(md5sum $(GEN_FILES)); \
-	$(MAKE) gen >/dev/null; \
+	{ $(GEN_CMD); } >/dev/null; \
 	second=$$(md5sum $(GEN_FILES)); \
 	if [ "$$before" != "$$first" ]; then \
 		echo "gen drift: committed files differ from 'make gen'; run make gen and commit" >&2; \

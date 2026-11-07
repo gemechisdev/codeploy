@@ -955,8 +955,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Single-use WS ticket (<=30 s); root needs step-up
-         * @description May respond `403 step_up_required`; the client opens the step-up dialog and retries once.
+         * Single-use WS ticket (<=30 s); as_root needs step-up
+         * @description Step-up is required only when `as_root` is true (host shell as root).
+         *     Non-root host and container tickets do not require step-up. When step-up
+         *     is required the response is `403 step_up_required` and the client opens
+         *     the dialog and retries once.
          */
         post: operations["createTerminalTicket"];
         delete?: never;
@@ -2079,6 +2082,7 @@ export interface components {
             /** Format: date-time */
             started_at: string;
             ended_at: string | null;
+            /** @description Always false in this build. Byte-level session recording (E4) is not implemented; the field is retained so clients do not break when recording ships behind terminal.record_sessions. */
             recorded: boolean;
         };
         GitConnection: {
