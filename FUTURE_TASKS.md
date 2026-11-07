@@ -16,11 +16,15 @@ task is not done.
 > |---|---|
 > | A (T1–T5) | **Done** — migrations reach v8 via `store.Migrate`; `make migrate-check`, `TestMigrateSeeds`, `TestQueryPlans`, `TestPreviewNoFK` |
 > | B (T6–T26) | **Mostly done.** Handler/audit/secret/guard proof added in `internal/api/handlers_phase_test.go`; T6/T7 engine `Run` fault injection and T25 live mock-vs-handler conformance still owed |
-> | C (T27–T43) | **Done except a confirmed-green full race tree**; T34/T28/T29/T30/T31/T32 all recorded in `docs/DECISIONS.md` |
-> | D (T44–T52) | **NOT RUN** — all hardware/runner-gated; see verification matrix. CI itself has run (two failures fixed), but the host matrix has not |
+> | C (T27–T43) | **Done** — the full local race tree is green, and the `go-arm64` CI job is green; T34/T28/T29/T30/T31/T32 all recorded in `docs/DECISIONS.md` |
+> | D (T44–T52) | **Hardware matrix NOT RUN** — see verification matrix. CI itself has run, failed twice, been fixed, and is now green on `go`, `go-arm64` and `web`; the host matrix has not |
 > | E (T53–T62) | **Code done.** T53 decided (no new routes), T54–T61 landed, `codeplo mcp check --json` verified. T62's live-daemon pass still NOT RUN |
-> | F (T63–T68) | **Code done, release not run.** GoReleaser + cosign + `update`/`rollback` + arm64 CI job + operator guide + a11y/i18n scaffolding exist; `release.yml` never executed on a tag |
+> | F (T63–T68) | **Code done; first public tag/release publication pending.** GoReleaser + cosign + `update`/`rollback` + one-line installer + README + arm64 CI job + operator guide + a11y/i18n scaffolding exist; `release.yml` has not yet executed on a tag |
 > | G (T69–T74) | **Done** — `make test` includes vitest, `.nvmrc`/CI Node pin, gen idempotence gate exercised in CI, `docs/ENV.md` (incl. MCP vars), ADR 0007, T74 boundary. T70 WSL host cleanup remains a host-side decision |
+>
+> Historical lines below that say CI or `release.yml` has "never executed" describe the moment this checklist was
+> written. CI run `42343047804` on `0178c65` is green on all three jobs. The release run is tracked separately in
+> `docs/RELEASE_NOTES.md` and `docs/site/verification-matrix.md`.
 
 ## Group A — Unblock the database (do this first, nothing else works without it)
 

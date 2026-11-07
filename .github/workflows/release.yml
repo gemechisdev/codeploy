@@ -23,8 +23,10 @@ jobs:
         with:
           version: '~> v2'
           args: build --clean
-      # Reuse the GoReleaser binaries (never delete or rebuild them), add the five static assets
-      # and build the 9-line checksums.txt (both arch binaries + five assets) in GNU sha256sum format.
+      # Reuse the GoReleaser binaries (never delete or rebuild them), add the five static assets and
+      # the installer, and build the 9-line checksums.txt (both arch binaries + five assets) in GNU
+      # sha256sum format. install.sh is a release asset but not a checksummed payload: it is the
+      # verifier, fetched from this same release by the one-line install command.
       - name: Assemble installer artefacts and checksums.txt
         run: make dist-pack DIST_FROM_GORELEASER=1
       - uses: sigstore/cosign-installer@v3
@@ -44,7 +46,30 @@ jobs:
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             dist/checksums.txt
-      - name: Upload all assets to the GitHub release
+      # Upload exactly the installer's artefact set. `dist/*` would also publish GoReleaser's
+      # metadata.json / artifacts.json / config.yaml, which are build bookkeeping, not downloads.
+      # The upload is idempotent on a workflow re-run: create the release once, otherwise replace assets.
+      - name: Verify and upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --title "$GITHUB_REF_NAME"
+        run: |
+          set -euo pipefail
+          assets=(
+            dist/codeplod_linux_amd64 dist/codeplod_linux_arm64
+            dist/codeplo_linux_amd64 dist/codeplo_linux_arm64
+            dist/checksums.txt dist/checksums.txt.sig dist/checksums.txt.pem
+            dist/codeplod.service dist/codeplo-caddy.service dist/caddy-bootstrap.json
+            dist/codeplo-pty.socket 'dist/codeplo-pty@.service'
+            dist/install.sh
+          )
+          for f in "${assets[@]}"; do
+            [ -s "$f" ] || { echo "missing release asset: $f" >&2; exit 1; }
+          done
+          [ "$(wc -l < dist/checksums.txt)" -eq 9 ] || {
+            echo "checksums.txt must cover both architectures and the five static assets" >&2; exit 1;
+          }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --generate-notes --title "$GITHUB_REF_NAME"
+          fi

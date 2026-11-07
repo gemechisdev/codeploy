@@ -5,7 +5,8 @@ apply through the real `store.Migrate` path, and the local gate chain has been e
 `go vet ./...`, `go test ./...`, `make gen-check`, `make migrate-check`, the P4–P7 real-router handler suite and the
 full frontend gate chain (lint, live-mode build, `check:mock-free`, `check:external`, `check:size`, 94 vitest
 tests). GitHub Actions has also run and reported two real failures — generated-file drift and a Node 20 frontend
-engine mismatch — both root-caused and fixed. A full green CI re-run is not yet observed.
+engine mismatch — both root-caused and fixed. A later all-green CI run on `0178c65` has now been observed: `go`,
+`go-arm64` and `web` all completed successfully.
 
 **What is still NOT RUN:** the host-facing matrix — spike E host PTY (T44), P2b/P2c VM fault injection (T45), real
 Docker deploy/fault injection (T46), real-DNS preview lifecycle (T47), public panel HTTPS (T48), Profile B/C
@@ -547,9 +548,8 @@ Migration head is now **8** (`TestMigrateAllToV8`).
 - T6/T7 full deploy engine `Run` fault injection; T14/T15 preview build/teardown unit tests; T25 live mock-vs-handler contract conformance
 - T44–T52 real host matrix (systemd PTY, VM fault injection, Docker, DNS, public HTTPS, reference VMs, GH Actions deploy workflow, GitHub App install)
 - T62 live-mode frontend pass against a real daemon (the static/unit gates have passed locally; that is not this)
-- T63–T66 a real tagged `release.yml` run with cosign verification end to end, and a confirmed-green arm64 runner
+- T63–T66 a real tagged `release.yml` run with cosign verification end to end (the arm64 CI job is now confirmed green)
 - T70 WSL fixture-state cleanup or an explicit fixture-ownership decision
-- A confirmed all-green CI re-run after the drift and Node fixes
 
 Operators: apply migration 0008 on upgrade; read `docs/ENV.md` and `docs/RELEASE_NOTES.md`.
 
@@ -581,4 +581,31 @@ Evidence actually produced on this host. Each "PASS" is an executed command, not
 ### Documentation refreshed
 
 `PROGRESS.md`, `FUTURE_PROGRESS.md`, `FUTURE_TASKS.md` (status header), `docs/DECISIONS.md` (stale statements + 8 new decisions), `docs/ENV.md` (MCP variables), `docs/adr/0007-pr-preview-environments.md` (status now that 0006/0007 apply and T5 is proven), `docs/site/verification-matrix.md` (per-row RAN/FIXED/NOT RUN), `docs/RELEASE_NOTES.md`, `docs/site/operator-guide.md`.
+
+## Public release pass (2026-11-07)
+
+**Status at this commit:** the one-line installer, README, release asset list, official repo URLs, pinned cosign
+identity and `codeplo update` source are implemented; the first tag has not yet been pushed through `release.yml`.
+CI run `42343047804` on `0178c65` is green on `go`, `go-arm64` and `web`.
+
+| Gate / item | Result |
+|---|---|
+| `go build ./...`, `go vet ./...`, `go test ./...` | **PASS** — every package `ok`, including the new `cmd/codeplo` release-URL tests |
+| `CC="C:/tools/winlibs/mingw64/bin/gcc.exe" go test -race -count=1 ./cmd/codeplo` | **PASS** — the only Go package changed in this pass |
+| `make gen-check`, `make migrate-check`, `gofmt -l cmd internal` | **PASS** — no drift, migrations reach v8, no unformatted Go |
+| Frontend gates after a repaired clean `npm install` | **PASS** — `VITE_API_MODE=live npm run build`, `lint`, `check:mock-free`, `check:external`, `check:size`, `npm test -- --run` (9 files / 94 tests), 59 files in `web/dist` |
+| `bash -n deploy/install.sh`, installer URL/identity simulation, invalid repo/version refusal | **PASS** — official latest, pinned `v1.2.0`, fork with a dot, and both invalid-input exits proven |
+| YAML parse + release upload shell syntax | **PASS** — `.goreleaser.yaml`, `ci.yml`, `release.yml`, `api/openapi.yaml`; the explicit 13-asset upload block parses with `bash -n` |
+| `make dist-pack` + `sha256sum -c checksums.txt` | **PASS** — `dist/install.sh` matches `deploy/install.sh`, 9 checksum lines all verify, and the installer's amd64 regexp matches exactly 7 entries |
+
+Local `make dist` itself could not complete on this Windows host because `npm ci` tried to bulk-delete stale
+`web/node_modules/.vite` and the environment's safe-delete guard refused (>50 files). That is a workstation
+artifact, not a release failure: moving the stale `web/dist` aside, repairing dependencies and running the same
+frontend gates directly all passed, and the release workflow starts from a clean Linux checkout. No unrun or blocked command
+is reported as a pass.
+
+Release implementation files: `README.md`, `deploy/install.sh`, `Makefile`, `.goreleaser.yaml`,
+`.github/workflows/release.yml`, `cmd/codeplo/update.go`, `cmd/codeplo/update_url_test.go`, plus the refreshed
+`docs/ENV.md`, `docs/site/operator-guide.md`, `docs/DECISIONS.md`, `FUTURE_TASKS.md`, `FUTURE_PROGRESS.md`,
+`docs/site/verification-matrix.md` and this file.
 

@@ -31,7 +31,7 @@ Judgment calls made while implementing Phase 0 and Phase 1. The plan outranks th
 - The audit tamper test drops the `audit_no_update` trigger first, because the database refuses the UPDATE. This is the intended meaning of tamper-evident: the trigger is defence in depth, and the hash chain is what detects an attacker who has database access.
 - `RouteDef.NoCSRF` was declared and unused here (public routes already skip CSRF). **Superseded by T34 (2026-10-22):** the field was removed; `guard` is now the single place that decides CSRF.
 - oapi-codegen runs in `make gen` and CI with `models: true` only, writing `internal/api/oapigen/models.gen.go`. Server stubs are not generated because the route table in `internal/api/handlers_*.go` carries one permission per route and the authz matrix reads it; a generated strict server would hide that. The drift check covers the TS schema, `stubs_gen.go` and the generated models. The generated file must be committed once `make gen` has been run.
-- Installer: `codeplod.service` is now covered by the checksum check (it was downloaded but not verified). cosign verification of `checksums.txt` runs when `cosign` and `CODEPLO_COSIGN_IDENTITY` are set; `CODEPLO_REQUIRE_COSIGN=1` makes it mandatory. The certificate identity is not hard-coded: `.github/workflows/release.yml` signs `checksums.txt` keylessly, and the operator supplies the matching identity regexp. (This bullet originally said "no release workflow exists yet"; that changed with T63/T64.)
+- Installer: `codeplod.service` is now covered by the checksum check (it was downloaded but not verified). cosign verification originally required `cosign` **and** a caller-supplied `CODEPLO_COSIGN_IDENTITY`; `CODEPLO_REQUIRE_COSIGN=1` made it mandatory. **Superseded by the public release pass (2026-11-07):** `.github/workflows/release.yml` signs `checksums.txt` keylessly, and both `deploy/install.sh` and `codeplo update` now pin that exact OIDC identity by default while still allowing `CODEPLO_COSIGN_IDENTITY` to override it for a fork. (This bullet originally said "no release workflow exists yet"; that changed with T63/T64.)
 - Setup operator step: only existing sudo users are accepted in P1. The operator is chosen from `/etc/passwd` (uid 1000 to 65533, login shell, validated name) and must be in the `sudo` or `wheel` group. User creation needs root and is part of P2 hardening, so `create` mode is refused with a contract error instead of simulated.
 
 ## Tester pass (2026-10-20)
@@ -1040,4 +1040,53 @@ missing instead of silently rebuilding an unsigned replacement. `release.yml` pa
 
 T69 asked for a `make test-web`; the final shape is `test-web` as its own target **and** the same command appended
 to `test`. A target nobody invokes does not make the vitest suite visible to the Go-side workflow.
+
+## Public release pass — judgment calls (2026-11-07)
+
+### The official repository and `releases/latest/download` are the default source
+
+`deploy/install.sh` pointed at `github.com/codeplo/codeplo`, which is not the public repository, and required
+`CODEPLO_VERSION` before it would download anything. `codeplo update` had the same bad host and the same requirement.
+Decision: make `gemechisdev/codeploy` + `releases/latest/download` the default in both, keep `CODEPLO_VERSION`,
+`CODEPLO_REPO` and `CODEPLO_BASE_URL` for pinned versions, forks and https mirrors, and validate the owner/repo and
+tag path fragments before they reach a URL. GitHub resolves every `latest/download/<asset>` redirect to the same
+newest non-draft, non-prerelease release, so the installer needs no API call or version guess.
+
+### `install.sh` is a release asset, not a checksummed payload
+
+The one-line command fetches the installer from the same release as the binaries. `make dist-pack` now copies it into
+`dist/`, but deliberately leaves it out of `checksums.txt`: the installer is the verifier, and including it would
+break the strict seven-entry assertion without adding trust (a compromised installer could simply ignore the extra
+line). Cosign still signs `checksums.txt`, and every downloaded binary/unit/config is checked against it before any
+host write. `release.yml` uploads an explicit asset list rather than `dist/*`, so GoReleaser's metadata files are not
+presented as operator downloads.
+
+### Cosign identity is pinned by default in both install and update
+
+The old installer skipped signature verification unless the operator supplied `CODEPLO_COSIGN_IDENTITY`, which made
+"signed release" mostly theoretical. Decision: both the script and the CLI derive the official
+`release.yml@refs/tags/v*` identity by default, verify automatically when `cosign` is installed, treat a failed
+verification as fatal, and allow `CODEPLO_REQUIRE_COSIGN=1` to refuse a downgrade to SHA-256-only. Forks override
+`CODEPLO_REPO` and `CODEPLO_COSIGN_IDENTITY`; dots in a repo name are regexp-escaped so a fork cannot accidentally
+match a different repository.
+
+### `codeplo update` got real URL tests
+
+`cmd/codeplo/update_url_test.go` proves the official latest URL, pinned tags, prerelease tags, fork and mirror
+overrides, rejection of path traversal / non-https URLs, and that the default cosign identity matches only this
+repo's release workflow. The helpers are pure, so this is executable proof without downloading a release or touching
+a host. Compilation alone would not have caught the wrong repo host.
+
+### Released SPA mode is explicit
+
+`.goreleaser.yaml`'s `before.hooks` and the Makefile `web` target now run
+`VITE_API_MODE=live npm run build`. The SPA already defaults to live, but a release or `make build` should not
+depend on an implicit default. Verified from GoReleaser's build pipeline that global `before` hooks run for
+`goreleaser build` before `dist` is cleaned and the Go binaries are built.
+
+### First tag is `v1.2.0`
+
+No tags or releases existed. `web/package.json`, the seeded module version and the documented examples all say
+`1.2.0`, so the first public tag is `v1.2.0` rather than inventing a new version. A later release can move all
+three together.
 

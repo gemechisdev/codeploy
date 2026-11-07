@@ -71,12 +71,17 @@ Rotate `CODEPLO_MCP_TOKEN` by restarting the daemon with the new value; the chan
 Shared by `install.sh` and `codeplo update` / `codeplo rollback`. `codeplo update` also reads `CODEPLO_DATA_DIR`
 for the backup directory `<data-dir>/update-backups/<stamp>/`.
 
-| Variable | Purpose |
-|---|---|
-| `CODEPLO_VERSION` | Release tag for `install.sh`; also labels a `codeplo update` backup |
-| `CODEPLO_BASE_URL` | Override the release artefact base URL (https only) |
-| `CODEPLO_REQUIRE_COSIGN` | Require cosign verification when `1` |
-| `CODEPLO_COSIGN_IDENTITY` | Certificate identity regexp for cosign |
-| `CODEPLO_COSIGN_ISSUER` | OIDC issuer for cosign |
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEPLO_REPO` | `gemechisdev/codeploy` | Official public release repository; set `owner/repo` for a fork |
+| `CODEPLO_VERSION` | `latest` | `releases/latest/download`, or a pinned `v*` tag; also labels a `codeplo update` backup |
+| `CODEPLO_BASE_URL` | _(empty)_ | Override the whole release artefact base URL (https only) |
+| `CODEPLO_REQUIRE_COSIGN` | `0` | Require cosign verification when `1` |
+| `CODEPLO_COSIGN_IDENTITY` | _(pinned to the official release workflow)_ | Override the certificate identity regexp for a fork |
+| `CODEPLO_COSIGN_ISSUER` | `https://token.actions.githubusercontent.com` | OIDC issuer for cosign |
+
+Both `install.sh` and `codeplo update` now default to the official repo's latest release. When `cosign` is
+installed, both verify `checksums.txt` against the pinned workflow identity automatically; without cosign they
+warn and still enforce every SHA-256 checksum.
 
 Hardening spool: `CODEPLO_REVERT_DIR` (default `$DATA_DIR/revert`).

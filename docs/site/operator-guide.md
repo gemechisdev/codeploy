@@ -7,7 +7,10 @@
 ## Install
 
 1. Install Caddy from the official repository.
-2. Run the verified installer: `CODEPLO_VERSION=vX.Y.Z bash install.sh`.
+2. Run the one-command installer from the official public release:
+   `curl -fsSL https://github.com/gemechisdev/codeploy/releases/latest/download/install.sh | sudo bash`.
+   Pin a tag with `sudo env CODEPLO_VERSION=v1.2.0 bash`, or serve a local/fork release with `CODEPLO_BASE_URL`
+   / `CODEPLO_REPO`.
 3. Tunnel: `ssh -L 7443:127.0.0.1:7443 <host>` and open the printed setup URL.
 
 ## Panel domain
@@ -37,15 +40,17 @@ Upgrade from a local release directory (deterministic, preferred):
 
 The directory must hold the full artefact set `install.sh` verifies: the two Linux binaries for the host
 architecture, the two systemd units, the Caddy bootstrap config, the PTY socket and unit, `checksums.txt`, and (for
-cosign) `checksums.txt.sig` + `checksums.txt.pem`. Without `--from`, artefacts are downloaded over https from
-`CODEPLO_BASE_URL` / `CODEPLO_VERSION` (`CODEPLO_VERSION` also labels the backup). Both binaries are installed to
+cosign) `checksums.txt.sig` + `checksums.txt.pem`. Without `--from`, artefacts are downloaded over https from the
+official `gemechisdev/codeploy` latest release; `CODEPLO_VERSION` pins a tag, `CODEPLO_REPO` selects a fork and
+`CODEPLO_BASE_URL` selects an https mirror (`CODEPLO_VERSION` also labels the backup). Both binaries are installed to
 `/usr/local/bin` by default; override with `--bin-dir`.
 
 Before anything is written to the host, every asset's SHA-256 is checked against `checksums.txt` (all seven entries,
-including the ones this command does not install), and unsafe filenames are refused. When the `cosign` binary and
-`CODEPLO_COSIGN_IDENTITY` are present, `checksums.txt` is signature-verified; set `CODEPLO_REQUIRE_COSIGN=1` to make
-that mandatory — without it, a missing cosign or identity is a loud warning, never a silent downgrade. Any
-verification failure leaves the host exactly as it was.
+including the ones this command does not install), and unsafe filenames are refused. When `cosign` is installed,
+`checksums.txt` is signature-verified against the pinned official release-workflow identity by default;
+`CODEPLO_COSIGN_IDENTITY` overrides it for a fork. Set `CODEPLO_REQUIRE_COSIGN=1` to make verification mandatory —
+without it, a missing cosign is a loud warning, never a silent downgrade. Any verification failure leaves the host
+exactly as it was.
 
 On success a backup is written to `<data-dir>/update-backups/<stamp>/`: copies of the installed `codeplod` and
 `codeplo` binaries, a SQLite snapshot taken with `VACUUM INTO` (works with WAL; no external `sqlite3` binary), and a

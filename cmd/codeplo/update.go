@@ -24,7 +24,17 @@ import (
 	"github.com/codeplo/codeplo/internal/store"
 )
 
-var updateStampRe = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]+$`)
+const (
+	defaultReleaseRepo   = "gemechisdev/codeploy"
+	defaultCosignIssuer  = "https://token.actions.githubusercontent.com"
+	latestReleaseVersion = "latest"
+)
+
+var (
+	updateStampRe    = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]+$`)
+	releaseVersionRe = regexp.MustCompile(`^(latest|v[0-9][A-Za-z0-9._+-]*)$`)
+	releaseRepoRe    = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+)
 
 type updateManifest struct {
 	Version        string            `json:"version"`
@@ -64,14 +74,19 @@ func updateCommand(args []string) error {
 
 	cosignPath, cosignErr := exec.LookPath("cosign")
 	identity := os.Getenv("CODEPLO_COSIGN_IDENTITY")
+	if identity == "" {
+		// The installer pins this same workflow identity. An operator with cosign installed should get
+		// signature verification without having to discover and export the regexp first.
+		identity = defaultCosignIdentity(releaseRepo())
+	}
 	issuer := os.Getenv("CODEPLO_COSIGN_ISSUER")
 	if issuer == "" {
-		issuer = "https://token.actions.githubusercontent.com"
+		issuer = defaultCosignIssuer
 	}
 	if os.Getenv("CODEPLO_REQUIRE_COSIGN") == "1" && (cosignErr != nil || identity == "") {
 		return fmt.Errorf("CODEPLO_REQUIRE_COSIGN=1 but cosign or CODEPLO_COSIGN_IDENTITY is unavailable: refusing to update without signature verification")
 	}
-	wantCosign := cosignErr == nil && identity != ""
+	wantCosign := cosignErr == nil
 
 	srcDir, cleanup, err := resolveSource(*from, wantCosign)
 	if err != nil {
@@ -139,7 +154,7 @@ func updateCommand(args []string) error {
 
 	version := os.Getenv("CODEPLO_VERSION")
 	if version == "" {
-		version = "unknown"
+		version = latestReleaseVersion
 	}
 	m := updateManifest{
 		Version:        version,
@@ -171,24 +186,71 @@ func updateCommand(args []string) error {
 	return nil
 }
 
+// releaseRepo is the official public repository unless a fork or mirror explicitly overrides it.
+// It is validated only when an https release URL is actually constructed, so `codeplo update --from DIR`
+// remains usable offline.
+func releaseRepo() string {
+	if repo := os.Getenv("CODEPLO_REPO"); repo != "" {
+		return repo
+	}
+	return defaultReleaseRepo
+}
+
+// defaultCosignIdentity mirrors the regexp deploy/install.sh pins. QuoteMeta keeps a repo name
+// containing a dot literal instead of turning it into a wildcard.
+func defaultCosignIdentity(repo string) string {
+	return `^https://github\.com/` + regexp.QuoteMeta(repo) +
+		`/\.github/workflows/release\.yml@refs/tags/v[0-9].*$`
+}
+
+func releaseVersion() (string, error) {
+	ver := os.Getenv("CODEPLO_VERSION")
+	if ver == "" {
+		return latestReleaseVersion, nil
+	}
+	if !releaseVersionRe.MatchString(ver) || strings.Contains(ver, "..") {
+		return "", fmt.Errorf("invalid CODEPLO_VERSION %q (use latest or a v-prefixed tag)", ver)
+	}
+	return ver, nil
+}
+
+// releaseBaseURL is the shared release source for both the installer and `codeplo update`: the
+// newest non-draft, non-prerelease GitHub release by default, a pinned tag via CODEPLO_VERSION,
+// or an operator-owned https mirror via CODEPLO_BASE_URL.
+func releaseBaseURL() (string, error) {
+	if override := os.Getenv("CODEPLO_BASE_URL"); override != "" {
+		return validateReleaseBaseURL(override)
+	}
+	repo := releaseRepo()
+	if !releaseRepoRe.MatchString(repo) || strings.Contains(repo, "..") {
+		return "", fmt.Errorf("invalid CODEPLO_REPO %q (expected owner/repo)", repo)
+	}
+	ver, err := releaseVersion()
+	if err != nil {
+		return "", err
+	}
+	if ver == latestReleaseVersion {
+		return fmt.Sprintf("https://github.com/%s/releases/latest/download", repo), nil
+	}
+	return fmt.Sprintf("https://github.com/%s/releases/download/%s", repo, url.PathEscape(ver)), nil
+}
+
+func validateReleaseBaseURL(base string) (string, error) {
+	u, err := url.Parse(base)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("release base URL must be a plain https URL (got %q)", base)
+	}
+	return strings.TrimRight(base, "/"), nil
+}
+
 func resolveSource(from string, wantCosign bool) (string, func(), error) {
 	if from != "" {
 		return from, func() {}, nil
 	}
-	base := os.Getenv("CODEPLO_BASE_URL")
-	if base == "" {
-		ver := os.Getenv("CODEPLO_VERSION")
-		if ver == "" {
-			return "", nil, fmt.Errorf("set CODEPLO_VERSION or CODEPLO_BASE_URL, or use --from DIR")
-		}
-		if strings.ContainsAny(ver, `/\`) || strings.Contains(ver, "..") {
-			return "", nil, fmt.Errorf("invalid CODEPLO_VERSION %q", ver)
-		}
-		base = "https://github.com/codeplo/codeplo/releases/download/" + ver
-	}
-	u, err := url.Parse(base)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", nil, fmt.Errorf("release base URL must be a plain https URL (got %q)", base)
+	base, err := releaseBaseURL()
+	if err != nil {
+		return "", nil, err
 	}
 	tmp, err := os.MkdirTemp("", "codeplo-update-")
 	if err != nil {
@@ -302,7 +364,7 @@ func verifyAssets(dir string) error {
 
 func verifyCosign(dir, cosignPath, identity, issuer string, wantCosign bool) error {
 	if !wantCosign {
-		fmt.Fprintln(os.Stderr, "WARNING: cosign signature not verified (cosign or CODEPLO_COSIGN_IDENTITY missing); only SHA-256 checks apply")
+		fmt.Fprintln(os.Stderr, "WARNING: cosign signature not verified (cosign is not installed); only SHA-256 checks apply")
 		return nil
 	}
 	for _, f := range []string{"checksums.txt.sig", "checksums.txt.pem"} {

@@ -4,7 +4,9 @@ version: 2
 # This hook also runs for `goreleaser build`, so the released binaries embed the current UI.
 before:
   hooks:
-    - sh -c 'cd web && npm ci && npm run build && cd .. && rm -rf internal/webui/dist && mkdir -p internal/webui/dist && cp -r web/dist/. internal/webui/dist/ && touch internal/webui/dist/.gitkeep'
+    # VITE_API_MODE=live is explicit here (it is also the SPA default) so a released binary can never
+    # accidentally embed the in-browser mock. Matches the CI web job's build.
+    - sh -c 'cd web && npm ci && VITE_API_MODE=live npm run build && cd .. && rm -rf internal/webui/dist && mkdir -p internal/webui/dist && cp -r web/dist/. internal/webui/dist/ && touch internal/webui/dist/.gitkeep'
 
 # `goreleaser build --clean` writes the binaries straight into dist/ under the exact names
 # deploy/install.sh downloads. no_unique_dist_dir + a templated binary name avoid GoReleaser's

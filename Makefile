@@ -61,7 +61,7 @@ migrate-check:
 	grep -qE '^=== RUN[[:space:]]+TestMigrateAllToV8$$' "$$log" || { echo "migrate-check: TestMigrateAllToV8 did not run" >&2; exit 1; }
 
 web:
-	cd web && npm ci && npm run build
+	cd web && npm ci && VITE_API_MODE=live npm run build
 
 # build embeds web/dist through internal/webui (go:embed all:dist)
 build: web
@@ -98,5 +98,9 @@ dist-pack:
 	done
 	cp deploy/codeplod.service deploy/caddy/codeplo-caddy.service deploy/codeplo-pty.socket 'deploy/codeplo-pty@.service' dist/
 	cp deploy/caddy/bootstrap.json dist/caddy-bootstrap.json
+	# install.sh is the release's own entry point: the one-line `curl .../releases/latest/download/install.sh`
+	# command fetches the script from the SAME release as every artefact it then downloads. It is not in
+	# checksums.txt (it is the verifier, not a payload), which keeps the installer's 7-entry assertion intact.
+	cp deploy/install.sh dist/install.sh
 	cd dist && sha256sum -t codeplod_linux_* codeplo_linux_* codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket 'codeplo-pty@.service' > checksums.txt
 	@echo "dist/ contains $$(ls dist | wc -l) files; upload all of them to the release for the installer to verify"

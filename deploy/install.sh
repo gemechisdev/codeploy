@@ -1,16 +1,56 @@
 #!/usr/bin/env bash
-# codeplo verified installer. Usage: CODEPLO_VERSION=v0.1.0 bash install.sh
-# Downloads the release artefacts (both binaries, the two systemd units and the Caddy bootstrap config),
+# codeplo verified installer.
+#
+# One command on a fresh VPS (installs the latest release; cosign signature is verified whenever
+# cosign and the signed checksum assets are available):
+#   curl -fsSL https://github.com/gemechisdev/codeploy/releases/latest/download/install.sh | sudo bash
+#
+# Pin a version instead:
+#   curl -fsSL .../install.sh | sudo CODEPLO_VERSION=v1.2.0 bash
+#
+# Downloads the release artefacts (both binaries, the systemd units and the Caddy bootstrap config),
 # verifies the SHA-256 checksum list, installs, starts the services and prints the SSH-tunnel setup URL.
-# cosign verification of checksums.txt runs when cosign is installed (set CODEPLO_REQUIRE_COSIGN=1 to make it mandatory).
+# checksums.txt is keyless-cosign signed by this repo's release workflow; when cosign is installed the
+# signature is checked automatically against that exact identity (set CODEPLO_REQUIRE_COSIGN=1 to make
+# it mandatory even when cosign is absent).
 # This script needs bash (arrays + pipefail). The guard runs under dash too, so `sh install.sh` says why it stops.
 [ -n "${BASH_VERSION:-}" ] || { echo "this installer needs bash: bash install.sh" >&2; exit 2; }
 set -euo pipefail
 
-VERSION="${CODEPLO_VERSION:?set CODEPLO_VERSION, e.g. v0.1.0}"
-BASE="${CODEPLO_BASE_URL:-https://github.com/codeplo/codeplo/releases/download/$VERSION}"
-[ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
-command -v systemctl >/dev/null || { echo "systemd is required" >&2; exit 1; }
+# CODEPLO_REPO lets a fork serve its own releases; CODEPLO_BASE_URL overrides the whole URL.
+REPO="${CODEPLO_REPO:-gemechisdev/codeploy}"
+VERSION="${CODEPLO_VERSION:-latest}"
+# Validate the two path fragments before they reach curl. A GitHub repo is owner/name only, and a tag
+# is either "latest" or a v-prefixed semver-ish string; this also keeps the cosign identity below exact.
+[[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && "$REPO" != *".."* ]] || {
+  echo "invalid CODEPLO_REPO (expected owner/repo)" >&2; exit 1;
+}
+if [ -z "${CODEPLO_BASE_URL:-}" ] && [ "$VERSION" != "latest" ]; then
+  [[ "$VERSION" =~ ^v[0-9][A-Za-z0-9._+-]*$ && "$VERSION" != *".."* ]] || {
+    echo "invalid CODEPLO_VERSION (use latest or a v-prefixed tag)" >&2; exit 1;
+  }
+fi
+if [ -n "${CODEPLO_BASE_URL:-}" ]; then
+  BASE="$CODEPLO_BASE_URL"
+elif [ "$VERSION" = "latest" ]; then
+  # GitHub redirects /releases/latest/download/<asset> to the newest non-draft, non-prerelease release,
+  # so every artefact below comes from one and the same release without needing the API or a version number.
+  BASE="https://github.com/$REPO/releases/latest/download"
+else
+  BASE="https://github.com/$REPO/releases/download/$VERSION"
+fi
+# The release workflow signs checksums.txt with this OIDC identity. Pinning it here means an operator who
+# already has cosign gets signature verification by default, not silently skipped. Override it for a fork.
+REPO_RE="${REPO//./\\.}"
+COSIGN_IDENTITY_DEFAULT='^https://github\.com/'"$REPO_RE"'/\.github/workflows/release\.yml@refs/tags/v[0-9].*$'
+COSIGN_IDENTITY="${CODEPLO_COSIGN_IDENTITY:-$COSIGN_IDENTITY_DEFAULT}"
+
+echo "codeplo installer: repo=$REPO version=$VERSION arch=$(uname -m)" >&2
+echo "  release URL: $BASE" >&2
+[ "$(id -u)" -eq 0 ] || { echo "run as root (try: curl ... | sudo bash)" >&2; exit 1; }
+for tool in curl sha256sum systemctl; do
+  command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
+done
 case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "unsupported arch" >&2; exit 1 ;; esac
 # Caddy is the platform's edge (docs/adr/0003) and the unit starts /usr/bin/caddy. Checked before anything is
 # downloaded so a host is never left half-configured; codeplo does not pull a third-party apt repo silently.
@@ -28,16 +68,31 @@ cd "$tmp"
 for f in "${ASSETS[@]}"; do
   curl -fsSL --proto '=https' --tlsv1.2 -o "$f" "$BASE/$f"
 done
-# Signature over the checksum list (keyless cosign; identity must be pinned by the caller or the release pipeline).
-if command -v cosign >/dev/null 2>&1 && [ -n "${CODEPLO_COSIGN_IDENTITY:-}" ]; then
-  for f in checksums.txt.sig checksums.txt.pem; do curl -fsSL --proto '=https' --tlsv1.2 -o "$f" "$BASE/$f"; done
-  cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
-    --certificate-identity-regexp "$CODEPLO_COSIGN_IDENTITY" \
-    --certificate-oidc-issuer "${CODEPLO_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}" checksums.txt
-elif [ "${CODEPLO_REQUIRE_COSIGN:-0}" = "1" ]; then
-  echo "cosign and CODEPLO_COSIGN_IDENTITY are required when CODEPLO_REQUIRE_COSIGN=1" >&2; exit 1
-else
-  echo "warning: cosign signature not verified (cosign or CODEPLO_COSIGN_IDENTITY missing); only SHA-256 checks apply" >&2
+# Signature over the checksum list (keyless cosign, signed by this repo's release workflow).
+# A verification FAILURE is always fatal; missing signature assets only downgrade to a warning when the
+# operator did not explicitly demand cosign. That keeps an unsigned-but-checksummed install possible
+# without ever letting a bad signature pass silently.
+signed=0
+if command -v cosign >/dev/null 2>&1; then
+  have_sig=1
+  for f in checksums.txt.sig checksums.txt.pem; do
+    curl -fsSL --proto '=https' --tlsv1.2 -o "$f" "$BASE/$f" || have_sig=0
+  done
+  if [ "$have_sig" = 1 ]; then
+    cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
+      --certificate-identity-regexp "$COSIGN_IDENTITY" \
+      --certificate-oidc-issuer "${CODEPLO_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}" checksums.txt \
+      || { echo "cosign verification FAILED for checksums.txt; refusing to install" >&2; exit 1; }
+    echo "cosign: checksums.txt signature verified" >&2
+    signed=1
+  fi
+fi
+if [ "$signed" != 1 ]; then
+  if [ "${CODEPLO_REQUIRE_COSIGN:-0}" = "1" ]; then
+    echo "CODEPLO_REQUIRE_COSIGN=1 but cosign is unavailable or the signed checksum assets could not be verified" >&2
+    exit 1
+  fi
+  echo "warning: cosign signature not verified; only SHA-256 checks apply (install cosign for signature verification)" >&2
 fi
 # Verify every downloaded artefact, including both unit files and the bootstrap config; abort on any mismatch.
 grep -E "$ASSET_RE" checksums.txt | sha256sum -c -

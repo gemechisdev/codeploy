@@ -54,7 +54,8 @@ unit tests (T14/T15), and a live mock-vs-handler contract conformance run (T25).
 **M3 — Run what only a machine can run. MOSTLY NOT RUN.** Spike E (T44), the P2b/P2c VM matrix (T45), real-DNS
 previews (T47), public HTTPS (T48), Profile B/C measurements (T50), the reusable deploy workflow (T51) and a real
 GitHub App install (T52) all need host resources. CI **has** run: the drift job and the frontend job both failed and
-both were fixed. `docs/site/verification-matrix.md` is the authoritative per-row status.
+both were fixed; a later run on `0178c65` (`42343047804`) is green on `go`, `go-arm64` and `web`.
+`docs/site/verification-matrix.md` is the authoritative per-row status.
 
 **M4 — Finish P7's code. DONE (code), NOT RUN (host).** Extensions, MCP, previews UI and Templates search exist.
 The frontend's static/unit gates pass in live build mode, but no click-through against a real daemon (T62).
@@ -64,17 +65,17 @@ tree. No tag has been pushed through `release.yml`; no signed artefact exists ye
 
 ## 4. What is likely to break, ranked (current)
 
-1. **A green CI re-run** — the two failures that were fixed (generated drift, Node 20) are understood, but no
-   all-green runner result has been observed in this session. Expect the `go` job's race step and `make build` to be
-   the first unexercised surfaces.
-2. **`release.yml` on a real tag** — GoReleaser output reuse, cosign keyless identity and the installer's
-   seven-artefact verification have only been checked locally, never end to end.
-3. **Engine `Run` fault injection (T6/T7)** — the largest untested code path. The handler suite deliberately uses
+1. **`release.yml` on a real tag** — the first tag is being prepared. GoReleaser output reuse, cosign keyless
+   identity, the explicit asset upload and the installer's seven-artefact verification have only been checked
+   locally, never end to end.
+2. **Engine `Run` fault injection (T6/T7)** — the largest untested code path. The handler suite deliberately uses
    `deploy_now=false`, so it proves the HTTP/DB layer, not a container deploy.
-4. **Live-mode frontend (T62)** — WS/SSE, step-up and every P4–P7 screen against a running daemon.
-5. **Host/VM matrix (T44–T52)** — systemd PTY helper, firewall/SSH applies, DNS, public TLS and reference VMs.
-6. **Idle RSS 78.8 MB vs the 50 MB budget (T30)** and **Caddy zero-drop spike (T31)** — reported, not tuned;
+3. **Live-mode frontend (T62)** — WS/SSE, step-up and every P4–P7 screen against a running daemon.
+4. **Host/VM matrix (T44–T52)** — systemd PTY helper, firewall/SSH applies, DNS, public TLS and reference VMs.
+5. **Idle RSS 78.8 MB vs the 50 MB budget (T30)** and **Caddy zero-drop spike (T31)** — reported, not tuned;
    Profile B/C never measured. Do not silent-tune either.
+
+A green CI re-run is no longer on this list: run `42343047804` passed `go`, `go-arm64` and `web`.
 
 Already closed from the old list: migrations 0006/0007 unapplied; zero P4–P7 tests; the `/terminal/ticket`
 step-up inconsistency (T28); `POST /setup/operator` `mode:"create"` returning 501 (T27); the missing J4/J7
