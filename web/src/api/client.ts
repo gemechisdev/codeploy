@@ -1,7 +1,7 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './schema';
 import { ApiError } from './errors';
-import { getCsrf } from './session';
+import { getCsrf, syncServerNow } from './session';
 import { stepUpStore } from './stepup';
 
 export const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
@@ -36,6 +36,12 @@ export async function apiFetch(input: Request): Promise<Response> {
     }
   }
   if (res.status === 401 && !AUTH_EXEMPT.some((p) => input.url.includes(p))) handlers.onUnauthenticated();
+  // Keep the client clock offset fresh from any successful response so relative times work even
+  // when /auth/me failed once and SSE has not connected yet.
+  if (res.ok) {
+    const date = res.headers.get('Date');
+    if (date) syncServerNow(new Date(date).toISOString());
+  }
   return res;
 }
 

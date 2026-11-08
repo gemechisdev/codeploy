@@ -68,7 +68,7 @@ export function SecurityPage() {
               })}
               <Card>
                 <CardHeader title="Change history" description="Every applied change, with its server-owned confirmation deadline." />
-                <QueryBoundary query={changes} isEmpty={(c) => c.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No hardening changes have been applied yet.</p>} rows={2}>
+                <QueryBoundary query={changes} isEmpty={(c) => !c?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No hardening changes have been applied yet.</p>} rows={2}>
                   {(c) => (
                     <Table><THead><tr><TH>Check</TH><TH>Tier</TH><TH>State</TH><TH>Applied</TH><TH>Revert unit</TH></tr></THead>
                       <TBody>{c.items.map((x) => <TR key={x.id}><TD className="font-semibold text-primary">{x.check_name}</TD><TD>{x.tier}</TD><TD><StatusBadge status={x.state} /></TD><TD title={absTime(x.applied_at)}>{relTime(x.applied_at)}</TD><TD className="font-mono text-[10px] text-muted">{x.revert_unit ?? '—'}</TD></TR>)}</TBody></Table>

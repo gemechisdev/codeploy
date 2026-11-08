@@ -154,16 +154,18 @@ func (s *Service) DeadLetters(ctx context.Context, limit int) ([]Delivery, error
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, extension_id, event, status, attempts, last_error, created_at, updated_at
-		FROM extension_deliveries WHERE status='dead' ORDER BY updated_at DESC LIMIT ?`, limit)
+	rows, err := s.DB.QueryContext(ctx, `SELECT d.id, d.extension_id, COALESCE(e.name,''), d.event, d.status, d.attempts, d.last_error, d.created_at, d.updated_at
+		FROM extension_deliveries d
+		LEFT JOIN extensions e ON e.id = d.extension_id
+		WHERE d.status='dead' ORDER BY d.updated_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Delivery
+	out := make([]Delivery, 0)
 	for rows.Next() {
 		var d Delivery
-		if err := rows.Scan(&d.ID, &d.ExtensionID, &d.Event, &d.Status, &d.Attempts, &d.LastError, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.ExtensionID, &d.ExtensionName, &d.Event, &d.Status, &d.Attempts, &d.LastError, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -172,14 +174,15 @@ func (s *Service) DeadLetters(ctx context.Context, limit int) ([]Delivery, error
 }
 
 type Delivery struct {
-	ID          string
-	ExtensionID string
-	Event       string
-	Status      string
-	Attempts    int
-	LastError   string
-	CreatedAt   string
-	UpdatedAt   string
+	ID            string
+	ExtensionID   string
+	ExtensionName string
+	Event         string
+	Status        string
+	Attempts      int
+	LastError     string
+	CreatedAt     string
+	UpdatedAt     string
 }
 
 // Ensure sql import used when only types referenced in other files

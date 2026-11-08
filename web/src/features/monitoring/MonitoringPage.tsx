@@ -44,7 +44,7 @@ export function MonitoringPage() {
     <ModuleGate module="monitor">
       <PageHeader title="Monitoring" description="Host metrics sampled by the daemon." actions={
         <div role="group" aria-label="Time range" className="flex rounded-lg border border-subtle bg-surface-subtle p-0.5">{RANGES.map((r) => <button key={r} aria-pressed={r === range} onClick={() => setRange(r)} className={cn('cursor-pointer rounded-md px-2.5 py-1 text-xs font-semibold', r === range ? 'bg-brand-primary text-white' : 'text-secondary hover:text-primary')}>{r}</button>)}</div>} />
-      <QueryBoundary query={q} isEmpty={(d) => d.points.length === 0} rows={4}>
+      <QueryBoundary query={q} isEmpty={(d) => !d?.points?.length} rows={4}>
         {(d) => (
           <div className="grid gap-4 lg:grid-cols-2">
             <Chart title="CPU" unit="%" max={100} points={d.points} series={[{ label: 'CPU', color: '#A43CC7', pick: (p) => p.cpu_percent }]} />

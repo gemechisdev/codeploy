@@ -70,7 +70,7 @@ function TokensTab() {
   const [open, setOpen] = useState(false); const [name, setName] = useState(''); const [secret, setSecret] = useState<string | null>(null); const [rev, setRev] = useState<string | null>(null);
   return (
     <Card><CardHeader title="API tokens" description="A token's secret is shown once, at creation." actions={can('tokens:manage') && <Button size="sm" onClick={() => setOpen(true)}>New token</Button>} />
-      <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No tokens.</p>}>{(d) => (
+      <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No tokens.</p>}>{(d) => (
         <Table><THead><tr><TH>Name</TH><TH>Prefix</TH><TH>Scopes</TH><TH>Last used</TH><TH><span className="sr-only">Actions</span></TH></tr></THead>
           <TBody>{d.items.map((t) => (
             <TR key={t.id}><TD className="font-semibold text-primary">{t.name}</TD><TD className="font-mono text-[11px]">{t.prefix}…</TD><TD className="max-w-xs text-[11px] text-secondary">{t.scopes.join(', ')}</TD><TD>{t.last_used_at ? relTime(t.last_used_at) : 'never'}</TD>
@@ -93,7 +93,7 @@ function GitTab() {
   const q = useGitConnections();
   return (
     <Card><CardHeader title="Git connections" description="Per-resource deploy keys are managed in each resource's Source & CI/CD tab." />
-      <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No connections. A GitHub App integration is planned; until then use per-resource deploy keys.</p>}>{(d) => (
+      <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No connections. A GitHub App integration is planned; until then use per-resource deploy keys.</p>}>{(d) => (
         <ul className="divide-y divide-subtle">{d.items.map((c) => <li key={c.id} className="flex items-center justify-between px-4 py-3 text-xs"><span className="font-semibold text-primary">{c.name}</span><span><Badge tone="brand">{c.kind}</Badge> <span className="text-muted">{relTime(c.created_at)}</span></span></li>)}</ul>)}</QueryBoundary></Card>
   );
 }

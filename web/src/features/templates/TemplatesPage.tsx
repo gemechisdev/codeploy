@@ -42,7 +42,7 @@ export function TemplatesPage() {
     <ModuleGate module="templates">
       <PageHeader title="Templates" description="One-click starting points. Each template becomes a normal resource you can edit." />
       <div className="mb-3 max-w-sm"><Input placeholder="Search templates…" value={qtext} onChange={(e) => setQtext(e.target.value)} /></div>
-      <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No templates available.</p>}>
+      <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No templates available.</p>}>
         {(d) => {
           const needle = qtext.trim().toLowerCase();
           const items = needle ? d.items.filter((t) => [t.name, t.key, t.category, t.description].join(' ').toLowerCase().includes(needle)) : d.items;

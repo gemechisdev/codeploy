@@ -39,7 +39,7 @@ export function TerminalPage() {
       )}
       <Card className="mt-6">
         <CardHeader title="Session history" description="Who opened a shell, on what, and for how long." />
-        <QueryBoundary query={sessions} isEmpty={(s) => s.items.length === 0} empty={<EmptyState icon={Terminal} title="No sessions yet" />} rows={3}>
+        <QueryBoundary query={sessions} isEmpty={(s) => !s?.items?.length} empty={<EmptyState icon={Terminal} title="No sessions yet" />} rows={3}>
           {(s) => (
             <Table><THead><tr><TH>Who</TH><TH>Target</TH><TH>As</TH><TH>Started</TH><TH>Duration</TH></tr></THead>
               <TBody>{s.items.map((x) => (

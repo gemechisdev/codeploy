@@ -32,7 +32,7 @@ export function ProxyPage() {
             </CardBody></Card>)}
         </QueryBoundary>
         <Card><CardHeader title="Domains" description="All hostnames routed by this server." />
-          <QueryBoundary query={domains} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No domains yet. Add one from a resource's Domains tab.</p>} rows={3}>
+          <QueryBoundary query={domains} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No domains yet. Add one from a resource's Domains tab.</p>} rows={3}>
             {(d) => (
               <Table><THead><tr><TH>Hostname</TH><TH>Target</TH><TH>Certificate</TH><TH>Expires</TH></tr></THead>
                 <TBody>{d.items.map((x) => { const c = certOf(x.hostname); return (

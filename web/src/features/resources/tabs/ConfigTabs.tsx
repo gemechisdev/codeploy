@@ -111,7 +111,7 @@ export function VolumesTab({ resource: r }: { resource: Resource }) {
   const err = create.error instanceof ApiError ? create.error : null;
   return (
     <Card><CardHeader title="Volumes" description={`Bind mounts live under /var/lib/codeplo/volumes/${r.slug}/ and nowhere else.`} />
-      <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No volumes. Data written inside the container is lost on redeploy.</p>} rows={2}>
+      <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No volumes. Data written inside the container is lost on redeploy.</p>} rows={2}>
         {(d) => <Table><THead><tr><TH>Name</TH><TH>Mount path</TH><TH>Host path</TH></tr></THead><TBody>{d.items.map((v) => <TR key={v.id}><TD className="font-semibold text-primary">{v.name}</TD><TD className="font-mono text-[11px]">{v.mount_path}</TD><TD className="font-mono text-[11px] text-muted">{v.host_path}</TD></TR>)}</TBody></Table>}
       </QueryBoundary>
       {can('resource:write') && (

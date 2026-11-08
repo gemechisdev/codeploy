@@ -92,7 +92,7 @@ function WebhookCard({ r }: { r: Resource }) {
     <Card><CardHeader title="GitHub webhook" description="Pushes to the configured branch trigger a build. Signed with HMAC-SHA256; duplicate deliveries are ignored." actions={can('hook:manage') && <Button variant="secondary" size="sm" loading={create.isPending} onClick={() => create.mutate(undefined, { onSuccess: (d) => setSecret(d.secret), onError: (e) => toast.error(errorMessage(e)) })}><Webhook className="size-3.5" />{q.data?.configured ? 'Regenerate secret' : 'Create webhook'}</Button>} />
       <CardBody className="space-y-3">
         {q.data?.configured ? <p className="text-xs text-secondary">Payload URL <code className="font-mono text-primary">{origin()}{q.data.path}</code> · secret <code className="font-mono text-primary">{q.data.secret_prefix}…</code></p> : <p className="text-xs text-muted">No webhook yet.</p>}
-        <QueryBoundary query={deliveries} isEmpty={(d) => d.items.length === 0} empty={<p className="text-xs text-muted">No deliveries received yet.</p>} rows={2}>
+        <QueryBoundary query={deliveries} isEmpty={(d) => !d?.items?.length} empty={<p className="text-xs text-muted">No deliveries received yet.</p>} rows={2}>
           {(d) => <Table><THead><tr><TH>Result</TH><TH>Event</TH><TH>Commit</TH><TH>Reason</TH><TH>When</TH></tr></THead><TBody>{d.items.slice(0, 15).map((x) => <TR key={x.id}><TD><StatusBadge status={x.result} /></TD><TD>{x.event}</TD><TD className="font-mono text-[11px]">{x.commit_sha?.slice(0, 7) ?? '—'}</TD><TD className="max-w-60 truncate text-secondary" title={x.reason ?? ''}>{x.reason ?? '—'}</TD><TD title={absTime(x.received_at)}>{relTime(x.received_at)}</TD></TR>)}</TBody></Table>}
         </QueryBoundary>
       </CardBody>

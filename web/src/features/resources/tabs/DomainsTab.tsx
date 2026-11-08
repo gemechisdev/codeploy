@@ -22,7 +22,7 @@ export function DomainsTab({ resource: r }: { resource: Resource }) {
   return (
     <Card>
       <CardHeader title="Domains" description="Caddy issues and renews HTTPS certificates automatically once DNS points at this server." />
-      <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No domains yet. Add one below.</p>} rows={2}>
+      <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No domains yet. Add one below.</p>} rows={2}>
         {(d) => (
           <Table><THead><tr><TH>Hostname</TH><TH>Certificate</TH><TH>Expires</TH><TH><span className="sr-only">Actions</span></TH></tr></THead>
             <TBody>{d.items.map((x) => (

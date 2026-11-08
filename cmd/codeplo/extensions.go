@@ -72,7 +72,11 @@ func extensionsCommand(args []string) error {
 			return nil
 		}
 		for _, d := range items {
-			fmt.Printf("%s\t%s\t%s\tattempts=%d\t%s\n", d.ID, d.ExtensionID, d.Event, d.Attempts, d.LastError)
+			name := d.ExtensionName
+			if name == "" {
+				name = d.ExtensionID
+			}
+			fmt.Printf("%s\t%s\t%s\tattempts=%d\t%s\n", d.ID, name, d.Event, d.Attempts, d.LastError)
 		}
 		return nil
 	case "check":
