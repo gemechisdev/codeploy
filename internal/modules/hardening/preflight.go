@@ -40,7 +40,7 @@ func (p *Planner) Preflight(ctx context.Context, key, operator string, admin []s
 		distro := platform.DistroID()
 		out = append(out, item("distro", "Debian/Ubuntu host", platform.SupportedDistro(distro) || p.Env.Root != "/", "distribution: "+distro))
 		out = append(out, item("root", "Process can write system files", os.Geteuid() == 0 || p.Env.Root != "/",
-			"apply writes under /etc and runs apt/systemctl; the unprivileged service user cannot (privileged helper is open work)"))
+			"apply writes under /etc and runs apt/systemctl, which the unprivileged panel user cannot do. Copy the command from the plan and run it on the server with sudo"))
 		if key == "bf.protection" {
 			// The generated jail is checked against the ignore list before it is ever written: a jail missing an
 			// admin IP would let the operator be locked out of the host.

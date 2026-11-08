@@ -480,7 +480,7 @@ func TestPlanCarriesDriverBodies(t *testing.T) {
 	}
 	wantCmd(t, pl.Post[0], "nft", "-f", NftRulesetPath)
 	cmds := strings.Join(pl.Commands(), "\n")
-	if !strings.Contains(cmds, "write "+NftRulesetPath) {
+	if !strings.Contains(cmds, "cat > "+NftRulesetPath+".codeplo-tmp") {
 		t.Fatalf("commands lost the ruleset file: %s", cmds)
 	}
 	// Tier 2 never lands through the Tier 1 apply path

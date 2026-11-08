@@ -77,8 +77,15 @@ export function PlanDialog({ check, open, onOpenChange }: { check: HardeningChec
         {item?.plan_diff ? <DiffView diff={item.plan_diff} /> : item && <p className="text-xs text-muted">This check has no file diff; the commands below show what would run.</p>}
         {item && item.commands.length > 0 && (
           <div>
-            <div className="mb-1 flex items-center justify-between"><h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Command set</h4><CopyButton value={item.commands.join('\n')} label="Copy commands" /></div>
+            <div className="mb-1 flex items-center justify-between"><h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Run it yourself (one command)</h4><CopyButton value={item.commands.join('\n')} label="Copy command" /></div>
+            <p className="mb-1.5 text-[11px] text-muted">Paste this once in a terminal on the server. It backs up what it changes, applies the change, and prints how to undo it{check.tier >= 2 ? '; it also undoes itself after 5 minutes unless you cancel the timer' : ''}. Re-run the audit afterwards.</p>
             <pre className="overflow-x-auto rounded-lg bg-code-bg p-3 font-mono text-[11px] text-zinc-300">{item.commands.join('\n')}</pre>
+          </div>
+        )}
+        {preflightItems?.some((i) => i.key === 'root' && !i.ok) && (
+          <div role="note" className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-primary">
+            <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-amber-600" />
+            <div><p className="font-bold">The panel can&apos;t change system files itself</p><p className="text-secondary">It runs as an unprivileged user, so it never applies this directly. Copy the command above and run it on the server with sudo.</p></div>
           </div>
         )}
         {planOnly && check.tier >= 2 && (

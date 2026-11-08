@@ -46,19 +46,14 @@ type Plan struct {
 	Operator string // acct.operator: the account to record
 }
 
-// Commands renders the plan as display strings (pre, a "write <path>" line per file, post).
+// Commands returns what the operator copies and runs by hand: exactly one paste-ready command (see Script), or
+// none when the check has nothing to run. It used to return pseudo-lines such as "write /etc/x", which no shell can
+// execute.
 func (p Plan) Commands() []string {
-	out := []string{}
-	for _, c := range p.Pre {
-		out = append(out, c.String())
+	if s := p.Script(); s != "" {
+		return []string{s}
 	}
-	for _, f := range p.Files {
-		out = append(out, "write "+f.Path)
-	}
-	for _, c := range p.Post {
-		out = append(out, c.String())
-	}
-	return out
+	return []string{}
 }
 
 // Params are the per-request inputs to planning.
