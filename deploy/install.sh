@@ -53,13 +53,53 @@ for tool in curl sha256sum systemctl; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "unsupported arch" >&2; exit 1 ;; esac
-# Caddy is the platform's edge (docs/adr/0003) and the unit starts /usr/bin/caddy. Checked before anything is
-# downloaded so a host is never left half-configured; codeplo does not pull a third-party apt repo silently.
-if ! [ -x /usr/bin/caddy ] && ! command -v caddy >/dev/null 2>&1; then
-  echo "caddy is required (the codeplo-caddy unit runs /usr/bin/caddy)." >&2
-  echo "Install it from the official Caddy repository first, then re-run this installer." >&2
-  exit 1
-fi
+# Caddy is the platform's edge (docs/adr/0003); codeplo-caddy.service runs /usr/bin/caddy.
+# If it is missing, install the official static binary in one step (no third-party apt repo).
+# Skip with CODEPLO_SKIP_CADDY_INSTALL=1 to supply your own binary at /usr/bin/caddy.
+ensure_caddy() {
+  if [ -x /usr/bin/caddy ]; then
+    echo "caddy: $(/usr/bin/caddy version 2>/dev/null | head -1 || echo present at /usr/bin/caddy)" >&2
+    return 0
+  fi
+  if command -v caddy >/dev/null 2>&1; then
+    # Prefer a stable path for the unit file (ExecStart=/usr/bin/caddy).
+    cbin="$(command -v caddy)"
+    echo "caddy: found at $cbin — installing symlink at /usr/bin/caddy" >&2
+    ln -sfn "$cbin" /usr/bin/caddy
+    return 0
+  fi
+  if [ "${CODEPLO_SKIP_CADDY_INSTALL:-0}" = "1" ]; then
+    echo "caddy is required (codeplo-caddy runs /usr/bin/caddy) and CODEPLO_SKIP_CADDY_INSTALL=1." >&2
+    echo "Install Caddy, then re-run. Quick path:" >&2
+    echo "  curl -fsSL \"https://caddyserver.com/api/download?os=linux&arch=$ARCH\" -o /usr/bin/caddy && chmod 0755 /usr/bin/caddy" >&2
+    exit 1
+  fi
+  echo "caddy: not found — installing official static binary to /usr/bin/caddy" >&2
+  ctmp="$(mktemp)"
+  # Official build service (same bits as GitHub releases). ARCH is amd64|arm64 from the host probe above.
+  if ! curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 \
+      "https://caddyserver.com/api/download?os=linux&arch=$ARCH" -o "$ctmp"; then
+    rm -f "$ctmp"
+    echo "caddy: download failed. Install manually, then re-run:" >&2
+    echo "  curl -fsSL \"https://caddyserver.com/api/download?os=linux&arch=$ARCH\" -o /usr/bin/caddy && chmod 0755 /usr/bin/caddy" >&2
+    exit 1
+  fi
+  # Basic sanity: non-empty ELF (7f 45 4c 46). Caddy static builds are several MB.
+  magic="$(head -c 4 "$ctmp" | od -An -tx1 | tr -d " \n")"
+  if [ ! -s "$ctmp" ] || [ "$magic" != "7f454c46" ]; then
+    rm -f "$ctmp"
+    echo "caddy: downloaded file is not a Linux ELF binary; refusing to install." >&2
+    exit 1
+  fi
+  install -m 0755 "$ctmp" /usr/bin/caddy
+  rm -f "$ctmp"
+  # Do not enable the distro "caddy" unit if one exists — codeplo-caddy owns :80/:443.
+  if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+    systemctl disable --now caddy.service 2>/dev/null || true
+  fi
+  echo "caddy: installed $(/usr/bin/caddy version 2>/dev/null | head -1 || echo /usr/bin/caddy)" >&2
+}
+ensure_caddy
 # Every artefact this installer fetches and verifies, in the order the checksum list is expected to carry them.
 ASSETS=("codeplod_linux_$ARCH" "codeplo_linux_$ARCH" checksums.txt codeplod.service codeplo-caddy.service caddy-bootstrap.json codeplo-pty.socket "codeplo-pty@.service")
 ASSET_RE=" (codeplod_linux_$ARCH|codeplo_linux_$ARCH|codeplod.service|codeplo-caddy.service|caddy-bootstrap.json|codeplo-pty.socket|codeplo-pty@.service)\$"

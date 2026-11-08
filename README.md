@@ -49,18 +49,19 @@ curl -fsSL https://raw.githubusercontent.com/gemechisdev/codeploy/main/deploy/in
 | OS | Linux with **systemd** (Ubuntu/Debian/Fedora/RHEL family) |
 | Arch | `x86_64` (amd64) or `aarch64` (arm64) |
 | Access | root (`sudo bash` above) |
-| Preinstalled | **Caddy** from the [official Caddy repository](https://caddyserver.com/docs/install) (the panel's edge runs `/usr/bin/caddy`) |
 | Tools | `curl`, `sha256sum` (coreutils) |
 | Optional | `cosign` for signature verification; Docker for container deploys; a domain for public HTTPS |
 
-Caddy is a hard prerequisite and is checked **before** anything is downloaded, so a host is never left
-half-configured. Docker is optional at install time — the panel installs and boots without it, and container
-features become available once Docker is present.
+**Caddy** (the panel edge at `/usr/bin/caddy`) is installed automatically by the installer when missing —
+official static binary from [caddyserver.com](https://caddyserver.com/docs/install), no third-party apt repo.
+Skip with `CODEPLO_SKIP_CADDY_INSTALL=1` if you already manage Caddy yourself. Docker is optional at install
+time — the panel boots without it, and container features appear once Docker is present.
 
 ### What the one command actually does
 
-1. Picks the latest published release (or `CODEPLO_VERSION`), downloads `checksums.txt`, both Linux binaries
-   for your architecture, the two systemd units, the Caddy bootstrap config and the PTY socket/unit.
+1. Ensures `/usr/bin/caddy` exists (downloads the official static binary when missing). Picks the latest
+   published release (or `CODEPLO_VERSION`), downloads `checksums.txt`, both Linux binaries for your
+   architecture, the systemd units, the Caddy bootstrap config and the PTY socket/unit.
 2. Verifies the keyless-[cosign](https://docs.sigstore.dev/) signature over `checksums.txt` against
    `https://github.com/gemechisdev/codeploy/.github/workflows/release.yml@refs/tags/v*` when cosign is installed,
    then checks **all seven** downloaded artefacts against the SHA-256 list. A failed signature is fatal; every
