@@ -3,15 +3,13 @@
 package main
 
 import (
-	"context"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -98,6 +96,9 @@ func updateCommand(args []string) error {
 
 	// Every check below is read-only: nothing on the host is written until all of them pass.
 	if err := verifyAssets(srcDir); err != nil {
+		if *from == "" {
+			os.RemoveAll(srcDir) // a corrupt download must not be resumed or reused
+		}
 		return err
 	}
 	if err := verifyCosign(srcDir, cosignPath, identity, issuer, wantCosign); err != nil {
@@ -183,6 +184,7 @@ func updateCommand(args []string) error {
 	}
 
 	done = true
+	updateCompleted = true
 	fmt.Printf("updated to %s; backup at %s\n", version, backupDir)
 	fmt.Println("restart codeplod to run the new binaries; migrations are applied by the daemon on its next boot, not by this command")
 	return nil
@@ -246,6 +248,23 @@ func validateReleaseBaseURL(base string) (string, error) {
 	return strings.TrimRight(base, "/"), nil
 }
 
+// updateCompleted is set when an update finished, which is the only time the downloaded files are discarded: after a
+// failure they stay, so the next run resumes instead of fetching everything again over a slow link.
+var updateCompleted bool
+
+// downloadCacheDir is where release files are kept between attempts, one directory per release URL.
+func downloadCacheDir(base string) string {
+	sum := sha256.Sum256([]byte(base))
+	dir := filepath.Join("/var/cache/codeplo/update", hex.EncodeToString(sum[:])[:12])
+	if err := os.MkdirAll(dir, 0o700); err == nil {
+		return dir
+	}
+	if tmp, err := os.MkdirTemp("", "codeplo-update-"); err == nil {
+		return tmp
+	}
+	return dir
+}
+
 func resolveSource(from string, wantCosign bool) (string, func(), error) {
 	if from != "" {
 		return from, func() {}, nil
@@ -254,142 +273,43 @@ func resolveSource(from string, wantCosign bool) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	tmp, err := os.MkdirTemp("", "codeplo-update-")
-	if err != nil {
-		return "", nil, err
+	dir := downloadCacheDir(base)
+	cleanup := func() {
+		if updateCompleted {
+			os.RemoveAll(dir)
+		}
 	}
-	cleanup := func() { os.RemoveAll(tmp) }
 	client := newDownloadClient()
-	files := append(releaseAssets(), "checksums.txt")
+	manifest := []string{"checksums.txt"}
 	if wantCosign {
-		files = append(files, "checksums.txt.sig", "checksums.txt.pem")
+		manifest = append(manifest, "checksums.txt.sig", "checksums.txt.pem")
 	}
-	for _, name := range files {
-		if err := downloadFile(client, base, name, tmp); err != nil {
-			cleanup()
+	fmt.Fprintf(progressStderr, "Downloading the release from %s\n", base)
+	// The manifest is tiny and decides which release this is, so it is always fetched fresh. If it differs from the
+	// one the partial downloads were started against, those belong to another release and are dropped.
+	prev, _ := os.ReadFile(filepath.Join(dir, "checksums.txt"))
+	for _, n := range manifest {
+		_ = os.Remove(filepath.Join(dir, n))
+	}
+	for _, n := range manifest {
+		if err := downloadFile(client, base, n, dir); err != nil {
 			return "", nil, err
 		}
 	}
-	return tmp, cleanup, nil
-}
-
-// stallTimeout aborts a transfer that has delivered no bytes for this long. It replaces a fixed total timeout, which
-// fails a healthy but slow link (release binaries are several MB) while still catching a dead one.
-var stallTimeout = 60 * time.Second
-
-func newDownloadClient() *http.Client {
-	return &http.Client{Transport: &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           (&net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		TLSHandshakeTimeout:   20 * time.Second,
-		ResponseHeaderTimeout: 90 * time.Second,
-	}}
-}
-
-// idleReader resets the stall timer whenever data arrives.
-type idleReader struct {
-	r io.Reader
-	t *time.Timer
-}
-
-func (i idleReader) Read(p []byte) (int, error) {
-	n, err := i.r.Read(p)
-	if n > 0 {
-		i.t.Reset(stallTimeout)
-	}
-	return n, err
-}
-
-func downloadFile(client *http.Client, base, name, dir string) error {
-	u := strings.TrimRight(base, "/") + "/" + name
-	parsed, err := url.Parse(u)
-	if err != nil || parsed.Scheme != "https" {
-		return fmt.Errorf("refusing non-https download URL %q", u)
-	}
-	var last error
-	for attempt := 1; attempt <= 3; attempt++ {
-		fmt.Fprintf(os.Stderr, "downloading %s (attempt %d/3)\n", name, attempt)
-		if last = downloadOnce(client, u, name, dir); last == nil {
-			return nil
+	if cur, _ := os.ReadFile(filepath.Join(dir, "checksums.txt")); len(prev) > 0 && !bytes.Equal(prev, cur) {
+		fmt.Fprintln(progressStderr, "  a newer release was published since the last attempt; discarding the old partial downloads")
+		for _, a := range releaseAssets() {
+			for _, suffix := range []string{"", ".part", ".part.validator"} {
+				_ = os.Remove(filepath.Join(dir, a+suffix))
+			}
 		}
-		fmt.Fprintf(os.Stderr, "  failed: %v\n", last)
-		time.Sleep(time.Duration(attempt) * 2 * time.Second)
 	}
-	return last
-}
-
-func downloadOnce(client *http.Client, u, name, dir string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	stall := time.AfterFunc(stallTimeout, cancel)
-	defer stall.Stop()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: HTTP %d", name, resp.StatusCode)
-	}
-	stall.Reset(stallTimeout)
-	f, err := os.Create(filepath.Join(dir, name))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := io.Copy(f, idleReader{r: resp.Body, t: stall}); err != nil {
-		return fmt.Errorf("download %s: %w", name, err)
-	}
-	return nil
-}
-
-func parseChecksums(dir string) (map[string]string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "checksums.txt"))
-	if err != nil {
-		return nil, err
-	}
-	m := map[string]string{}
-	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
+	for _, name := range releaseAssets() {
+		if err := downloadFile(client, base, name, dir); err != nil {
+			return "", nil, err
 		}
-		if len(line) < 67 {
-			return nil, fmt.Errorf("malformed checksum line %q", line)
-		}
-		sep := line[64:66]
-		if sep != "  " && sep != " *" {
-			return nil, fmt.Errorf("malformed checksum line %q", line)
-		}
-		hash := strings.ToLower(line[:64])
-		if _, err := hex.DecodeString(hash); err != nil {
-			return nil, fmt.Errorf("malformed checksum hash in %q", line)
-		}
-		name := line[66:]
-		if !safeAssetName(name) {
-			return nil, fmt.Errorf("checksums.txt has an unsafe filename %q", name)
-		}
-		if _, ok := m[name]; ok {
-			return nil, fmt.Errorf("duplicate checksum entry for %q", name)
-		}
-		m[name] = hash
 	}
-	return m, nil
-}
-
-// safeAssetName refuses separators, absolute paths and dot segments, so a crafted checksum line can never name a
-// file outside the release directory or masquerade as an expected asset.
-func safeAssetName(name string) bool {
-	if name == "" || name == "." || name == ".." || filepath.IsAbs(name) {
-		return false
-	}
-	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
-		return false
-	}
-	return filepath.Base(name) == name
+	return dir, cleanup, nil
 }
 
 func verifyAssets(dir string) error {
