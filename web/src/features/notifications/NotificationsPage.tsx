@@ -78,11 +78,51 @@ export function NotificationsPage() {
           </QueryBoundary></Card>
         <Card><CardHeader title="Alert rules" />
           <QueryBoundary query={rules} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No alert rules.</p>} rows={3}>
-            {(d) => <CardBody className="p-0"><ul className="divide-y divide-subtle">{d.items.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-xs">
-                <div className="min-w-0 flex-1"><p className="font-semibold text-primary">{r.title}</p><p className="text-muted">{r.condition} · threshold {r.threshold} · cooldown {r.cooldown_s}s · {r.last_triggered_at ? `last fired ${relTime(r.last_triggered_at)}` : 'never fired'}</p></div>
-                <Switch aria-label={`${r.title} enabled`} checked={r.enabled} disabled={!manage} onCheckedChange={(enabled) => patchRule.mutate({ id: r.id, body: { enabled } }, { onError: err })} />
-              </li>))}</ul></CardBody>}
+            {(d) => {
+              const chItems = channels.data?.items ?? [];
+              return (
+              <CardBody className="p-0"><ul className="divide-y divide-subtle">{d.items.map((r) => (
+                <li key={r.id} className="flex flex-col gap-2 px-4 py-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1"><p className="font-semibold text-primary">{r.title}</p><p className="text-muted">{r.condition} · threshold {r.threshold} · cooldown {r.cooldown_s}s · {r.last_triggered_at ? `last fired ${relTime(r.last_triggered_at)}` : 'never fired'}</p></div>
+                    <Switch aria-label={`${r.title} enabled`} checked={r.enabled} disabled={!manage} onCheckedChange={(enabled) => patchRule.mutate({ id: r.id, body: { enabled } }, { onError: err })} />
+                  </div>
+                  {manage && (
+                    <div className="flex flex-wrap items-center gap-2 pl-0.5">
+                      <span className="text-[11px] text-muted">Notify:</span>
+                      {chItems.length === 0 ? (
+                        <span className="text-[11px] text-muted">Add a channel above first.</span>
+                      ) : chItems.map((c) => {
+                        const on = (r.channel_ids ?? []).includes(c.id);
+                        return (
+                          <label key={c.id} className="inline-flex cursor-pointer items-center gap-1 rounded border border-subtle px-1.5 py-0.5 text-[11px]">
+                            <input
+                              type="checkbox"
+                              className="size-3 accent-brand-primary"
+                              checked={on}
+                              disabled={patchRule.isPending}
+                              onChange={() => {
+                                const next = on
+                                  ? (r.channel_ids ?? []).filter((id) => id !== c.id)
+                                  : [...(r.channel_ids ?? []), c.id];
+                                patchRule.mutate({ id: r.id, body: { channel_ids: next } }, {
+                                  onSuccess: () => toast.success(on ? `Removed ${c.name}` : `Added ${c.name}`),
+                                  onError: err,
+                                });
+                              }}
+                            />
+                            {c.name}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {!manage && (r.channel_ids?.length ?? 0) > 0 && (
+                    <p className="text-[11px] text-muted">Channels: {(r.channel_ids ?? []).map((id) => chItems.find((c) => c.id === id)?.name ?? id).join(', ')}</p>
+                  )}
+                </li>))}</ul></CardBody>
+              );
+            }}
           </QueryBoundary></Card>
       </div>
       {adding && <AddChannel onClose={() => setAdding(false)} />}

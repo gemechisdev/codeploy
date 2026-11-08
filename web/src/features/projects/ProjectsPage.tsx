@@ -51,7 +51,7 @@ export function ProjectsPage() {
   return (
     <>
       <PageHeader title="Projects" description="Everything you deploy, grouped by project and environment." actions={add} />
-      <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<Card><EmptyState icon={Box} title="No projects yet" action={add}>Create a project, then add a resource to deploy your first container.</EmptyState></Card>}>
+      <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<Card><EmptyState icon={Box} title="No projects yet" action={add}>Create a project, then add a resource to deploy your first container.</EmptyState></Card>}>
         {(d) => (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {d.items.map((p) => {

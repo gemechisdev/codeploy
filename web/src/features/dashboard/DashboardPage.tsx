@@ -42,7 +42,7 @@ export function DashboardPage() {
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               <Card><CardHeader title="Resources" description={`${m?.container_count ?? 0} containers running`} actions={<Link to="/projects" className="text-xs font-semibold text-brand-primary hover:underline">All projects</Link>} />
-                <QueryBoundary query={res} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">Nothing deployed yet. Create a project to get started.</p>} rows={3}>
+                <QueryBoundary query={res} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">Nothing deployed yet. Create a project to get started.</p>} rows={3}>
                   {(d) => <ul className="divide-y divide-subtle">{d.items.slice(0, 8).map((r) => <li key={r.id} className="flex items-center justify-between gap-3 px-4 py-2.5"><Link to="/resources/$resourceId" params={{ resourceId: r.id }} className="flex min-w-0 items-center gap-2 text-xs font-semibold text-primary hover:text-brand-primary"><Box aria-hidden className="size-3.5 shrink-0 text-muted" /><span className="truncate">{r.name}</span><span className="shrink-0 font-normal text-muted">{r.environment_name}</span></Link><StatusBadge status={r.status} /></li>)}</ul>}
                 </QueryBoundary></Card>
               <Card><CardHeader title="Recent activity" actions={can('audit:read') && <Link to="/settings" search={{ tab: 'audit' }} className="text-xs font-semibold text-brand-primary hover:underline">Audit log</Link>} />

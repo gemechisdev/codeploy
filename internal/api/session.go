@@ -179,7 +179,11 @@ func (s *Server) authenticate(r *http.Request) (*Principal, error) {
 		return nil, nil
 	}
 	if time.Since(ts) > time.Minute {
-		_, _ = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at=? WHERE id=?`, now(), id)
+		// Sliding absolute expiry: active sessions keep living up to session_ttl_h from now,
+		// so a long-open tab is not kicked after a fixed wall-clock window.
+		n := time.Now()
+		_, _ = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at=?, expires_at=? WHERE id=?`,
+			iso(n), iso(n.Add(s.sessionTTL(ctx))), id)
 	}
 	p := &Principal{User: u, SessionID: id, CSRF: csrf, Bootstrap: boot == 1, Pending: pending.String, Perms: s.rolePerms(ctx, u.Role)}
 	if stepUp.Valid {

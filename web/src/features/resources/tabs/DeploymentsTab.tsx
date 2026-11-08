@@ -94,7 +94,7 @@ export function DeploymentsTab({ resource }: { resource: Resource }) {
   return (
     <>
       <Card>
-        <QueryBoundary query={q} isEmpty={(d) => d.items.length === 0} empty={<EmptyState title="No deployments yet">Press Deploy to build or pull the configured image and start this resource.</EmptyState>} rows={4}>
+        <QueryBoundary query={q} isEmpty={(d) => !d?.items?.length} empty={<EmptyState title="No deployments yet">Press Deploy to build or pull the configured image and start this resource.</EmptyState>} rows={4}>
           {(d) => (
             <Table>
               <THead><tr><TH>Status</TH><TH>Trigger</TH><TH>Image</TH><TH>Digest</TH><TH>Started</TH><TH>Took</TH><TH><span className="sr-only">Open</span></TH></tr></THead>

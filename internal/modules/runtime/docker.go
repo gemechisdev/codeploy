@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -81,18 +82,19 @@ func (d *Docker) Available(ctx context.Context) error {
 }
 
 // Resolve returns the newest running container labelled codeplo.resource=<id>. During a blue/green swap two
-// containers can briefly carry the label; the newest is the one the edge is switching to.
+// containers can briefly carry the label; the newest (by Created) is the one the edge is switching to.
 func (d *Docker) Resolve(ctx context.Context, resourceID string) (Container, error) {
 	if !resourceRe.MatchString(resourceID) {
 		return Container{}, ErrNoContainer
 	}
 	filters, _ := json.Marshal(map[string][]string{"label": {LabelResource + "=" + resourceID}, "status": {"running"}})
 	var list []struct {
-		ID     string
-		Names  []string
-		Image  string
-		State  string
-		Labels map[string]string
+		ID      string
+		Names   []string
+		Image   string
+		State   string
+		Created int64
+		Labels  map[string]string
 	}
 	if err := d.get(ctx, "/containers/json?filters="+url.QueryEscape(string(filters)), &list); err != nil {
 		return Container{}, err
@@ -100,6 +102,8 @@ func (d *Docker) Resolve(ctx context.Context, resourceID string) (Container, err
 	if len(list) == 0 {
 		return Container{}, ErrNoContainer
 	}
+	// Docker does not guarantee list order; pick the highest Created unix timestamp.
+	sort.Slice(list, func(i, j int) bool { return list[i].Created > list[j].Created })
 	c := list[0]
 	name := ""
 	if len(c.Names) > 0 {
