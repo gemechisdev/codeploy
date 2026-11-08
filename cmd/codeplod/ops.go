@@ -29,8 +29,8 @@ import (
 	"github.com/codeplo/codeplo/internal/store"
 )
 
-// opsServices holds the operations services once they exist. A nil field means its module is switched off, which is
-// what every consumer here and in the API treats as "not available" rather than as "no results".
+// opsServices holds the operations services. They are all built at boot; whether a module is on is the flag in the
+// database, checked per request by the API and per pass by the loops, so a change takes effect without a restart.
 type opsServices struct {
 	monitor   *monitor.Service
 	databases *databases.Service
@@ -53,45 +53,57 @@ func wireOps(ctx context.Context, srv *api.Server, cfg config.Config, db *sql.DB
 	notifySvc.Timeout = time.Duration(settingInt(ctx, db, "notify.timeout_s", 10)) * time.Second
 	srv.Notify = notifySvc
 
-	if srv.Reg.Enabled(ctx, "monitor") {
-		m := monitor.New(db)
-		// Containers is a narrower port than Manager, and Docker satisfies it: measuring a host must not require
-		// the daemon to have said it is allowed to create containers.
-		if docker != nil {
-			m.Runtime = docker
-		}
-		m.Notify = notifySvc
-		srv.Monitor = m
-		o.monitor = m
+	// Metrics and backups are built whatever their flag says. The API gates every route on the flag and the loops in
+	// startLoops re-check it on each pass, so switching a module on in the panel works without a daemon restart.
+	m := monitor.New(db)
+	// Containers is a narrower port than Manager, and Docker satisfies it: measuring a host must not require
+	// the daemon to have said it is allowed to create containers.
+	if docker != nil {
+		m.Runtime = docker
 	}
+	m.Notify = notifySvc
+	srv.Monitor = m
+	o.monitor = m
 
-	if srv.Reg.Enabled(ctx, "databases") {
-		d := databases.New(db, key)
-		d.DataDir = cfg.DataDir
-		d.Timeout = time.Duration(settingInt(ctx, db, "backup.timeout_s", 900)) * time.Second
-		if docker != nil {
-			d.Runtime = docker
-		}
-		client, configured, err := s3Client()
-		if err != nil {
+	d := databases.New(db, key)
+	d.DataDir = cfg.DataDir
+	d.Timeout = time.Duration(settingInt(ctx, db, "backup.timeout_s", 900)) * time.Second
+	if docker != nil {
+		d.Runtime = docker
+	}
+	client, configured, err := s3Client()
+	if err != nil {
+		// A half-configured destination still stops the boot while backups are on: an operator who named a bucket
+		// believes their dumps are off-host. With the module off it is only a warning, and s3 schedules will fail
+		// with a stated reason if the module is switched on later.
+		if srv.Reg.Enabled(ctx, "databases") {
 			return nil, err
 		}
-		d.S3 = client
-		if !configured {
-			slog.Info("no s3 destination configured: backup schedules of that kind will fail with a stated reason")
+		slog.Warn("s3 backup destination is not usable; s3 backup schedules will fail until it is fixed", "err", err)
+		client, configured = nil, false
+	}
+	d.S3 = client
+	if !configured {
+		slog.Info("no s3 destination configured: backup schedules of that kind will fail with a stated reason")
+	}
+	o.databases = d
+	// The pre-deploy snapshot is a databases-module feature: with the module off the engine logs that no snapshot was
+	// possible and continues, exactly as when the service did not exist.
+	o.PreDeploy = func(c context.Context, resourceID string) (bool, error) {
+		if !srv.Reg.Enabled(c, "databases") {
+			return false, nil
 		}
-		o.databases = d
-		o.PreDeploy = d.PreDeployBackup
-		srv.Databases = d
-		// The queue reads its handler map while running, so registration happens here rather than at start.
-		// A run row left 'running' by a crash is failed by recoverBackups below, before the worker starts: the
-		// handler is idempotent, but the schedule that owns the row would otherwise refuse its next attempt.
-		srv.Jobs.Register(databases.JobRun, d.Execute)
-		if n, err := d.Recover(ctx); err != nil {
-			return nil, err
-		} else if n > 0 {
-			slog.Warn("closed backup attempts left running by a previous daemon", "count", n)
-		}
+		return d.PreDeployBackup(c, resourceID)
+	}
+	srv.Databases = d
+	// The queue reads its handler map while running, so registration happens here rather than at start.
+	// A run row left 'running' by a crash is failed by Recover below, before the worker starts: the handler is
+	// idempotent, but the schedule that owns the row would otherwise refuse its next attempt.
+	srv.Jobs.Register(databases.JobRun, d.Execute)
+	if n, err := d.Recover(ctx); err != nil {
+		return nil, err
+	} else if n > 0 {
+		slog.Warn("closed backup attempts left running by a previous daemon", "count", n)
 	}
 
 	// Cron jobs are stored per resource and executed inside its container. There is no API route for them (the
@@ -147,6 +159,9 @@ func (o *opsServices) startLoops(ctx context.Context, srv *api.Server, q *jobs.Q
 				if !sleepCtx(ctx, time.Duration(m.IntervalS(ctx))*time.Second) {
 					return
 				}
+				if !srv.Reg.Enabled(ctx, "monitor") {
+					continue
+				}
 				pt, err := m.SampleOnce(ctx)
 				if err != nil {
 					// A failed sample is a gap in the chart, not a stopped daemon: the next tick tries again.
@@ -167,6 +182,9 @@ func (o *opsServices) startLoops(ctx context.Context, srv *api.Server, q *jobs.Q
 				if !sleepCtx(ctx, time.Duration(m.EvalIntervalS(ctx))*time.Second) {
 					return
 				}
+				if !srv.Reg.Enabled(ctx, "monitor") {
+					continue
+				}
 				if err := m.Evaluate(ctx); err != nil {
 					slog.Warn("alert evaluation pass failed", "err", err)
 				}
@@ -178,8 +196,20 @@ func (o *opsServices) startLoops(ctx context.Context, srv *api.Server, q *jobs.Q
 		d := o.databases
 		// Both backup loops work off the same minute boundary: the scheduler decides when a schedule is due, the
 		// retention pass removes attempts older than their schedule's window.
-		go everyMinute(ctx, "backup schedule", func(c context.Context) error { _, err := d.ScheduleTick(c, q); return err })
-		go everyMinute(ctx, "backup retention", func(c context.Context) error { _, err := d.PruneAll(c); return err })
+		go everyMinute(ctx, "backup schedule", func(c context.Context) error {
+			if !srv.Reg.Enabled(c, "databases") {
+				return nil
+			}
+			_, err := d.ScheduleTick(c, q)
+			return err
+		})
+		go everyMinute(ctx, "backup retention", func(c context.Context) error {
+			if !srv.Reg.Enabled(c, "databases") {
+				return nil
+			}
+			_, err := d.PruneAll(c)
+			return err
+		})
 	}
 
 	if o.cron != nil {
@@ -309,6 +339,9 @@ func newMCP(db *sql.DB, srv *api.Server) *mcp.Server {
 	// wired; without it TriggerDeploy stays nil and the tool reports "deploy is not available".
 	if eng := srv.Deploy; eng != nil {
 		s.TriggerDeploy = func(ctx context.Context, resourceID string) (string, error) {
+			if !srv.Reg.Enabled(ctx, "deploy") {
+				return "", errors.New("the deploy module is disabled")
+			}
 			var cfgJSON string
 			if err := db.QueryRowContext(ctx, `SELECT config_json FROM resources WHERE id=?`, resourceID).Scan(&cfgJSON); err != nil {
 				return "", err

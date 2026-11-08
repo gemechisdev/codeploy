@@ -102,7 +102,7 @@ func (s *Server) listResourceDomains(w http.ResponseWriter, r *http.Request) {
 // reconcileAfter is best-effort: a domain change wants the new route live now, but if Caddy is down the
 // supervisor loop repairs the drift later, so a failure here must never fail the request.
 func (s *Server) reconcileAfter() {
-	if s.Edge == nil {
+	if s.Edge == nil || !s.Reg.Enabled(context.Background(), "edge") {
 		return
 	}
 	go func() {

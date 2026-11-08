@@ -52,61 +52,83 @@ func run() error {
 
 	srv := api.New(db, key, app.Version, app.Commit, app.BuiltAt)
 
-	// Managed Caddy edge: when the module is enabled the daemon owns the reconciler, runs one reconcile at
-	// startup (non-fatal if Caddy is still coming up) and supervises it in a loop tied to the daemon context.
+	// Every module's service is built at boot; the flag in the database is checked per request (API) and per pass (loops).
 	envOr := func(k, d string) string {
 		if v := os.Getenv(k); v != "" {
 			return v
 		}
 		return d
 	}
-	// reconcileEdge is the engine's route-refresh hook; nil when the edge module is off, which the engine treats
-	// as "nothing to do" rather than a failure.
-	var reconcileEdge func(context.Context) error
-	if srv.Reg.Enabled(ctx, "edge") {
-		adminSocket := envOr("CODEPLO_CADDY_ADMIN_SOCKET", "/run/codeplo/caddy-admin.sock")
-		rec := &edge.Reconciler{
-			DB:      db,
-			Client:  edge.NewClient(adminSocket),
-			Opts:    edge.Options{AdminSocket: adminSocket, PanelSocket: cfg.SocketPath, ACMEEmail: os.Getenv("CODEPLO_ACME_EMAIL")},
-			DataDir: envOr("CODEPLO_CADDY_DATA_DIR", filepath.Join(cfg.DataDir, "caddy")),
-			Unit:    envOr("CODEPLO_CADDY_UNIT", "codeplo-caddy"),
-			Run:     platform.DefaultRunner,
+	// Managed Caddy edge. The reconciler is always constructed, so turning the module on in the panel works at once
+	// without a daemon restart; whether it acts is decided by the module flag on every pass. reconcileEdge is the
+	// engine's route-refresh hook and is a no-op while the module is off.
+	adminSocket := envOr("CODEPLO_CADDY_ADMIN_SOCKET", "/run/codeplo/caddy-admin.sock")
+	rec := &edge.Reconciler{
+		DB:      db,
+		Client:  edge.NewClient(adminSocket),
+		Opts:    edge.Options{AdminSocket: adminSocket, PanelSocket: cfg.SocketPath, ACMEEmail: os.Getenv("CODEPLO_ACME_EMAIL")},
+		DataDir: envOr("CODEPLO_CADDY_DATA_DIR", filepath.Join(cfg.DataDir, "caddy")),
+		Unit:    envOr("CODEPLO_CADDY_UNIT", "codeplo-caddy"),
+		Run:     platform.DefaultRunner,
+	}
+	srv.Edge = rec
+	reconcileEdge := func(c context.Context) error {
+		if !srv.Reg.Enabled(c, "edge") {
+			return nil
 		}
-		srv.Edge = rec
-		reconcileEdge = func(c context.Context) error { _, err := rec.Reconcile(c); return err }
+		_, err := rec.Reconcile(c)
+		return err
+	}
+	if srv.Reg.Enabled(ctx, "edge") {
 		if _, err := rec.Reconcile(ctx); err != nil {
 			slog.Warn("initial edge reconcile deferred to supervisor", "err", err)
 		}
-		go rec.Loop(ctx, 30*time.Second)
 	}
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		failures := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if !srv.Reg.Enabled(ctx, "edge") {
+					continue
+				}
+				if err := reconcileEdge(ctx); err != nil {
+					failures++
+					if failures == 1 || failures%20 == 0 {
+						slog.Warn("edge reconcile failed", "err", err, "consecutive", failures)
+					}
+					continue
+				}
+				failures = 0
+			}
+		}
+	}()
 
 	// Container runtime: shared by the container shell (terminal module), resource logs and the deploy engine. It
 	// only dials the Docker socket per request, so wiring it never fails when Docker is absent; handlers then
 	// report the runtime as unavailable.
-	var docker *runtime.Docker
 	dockerSocket := envOr("CODEPLO_DOCKER_SOCKET", "/var/run/docker.sock")
-	if srv.Reg.Enabled(ctx, "terminal") || srv.Reg.Enabled(ctx, "deploy") || srv.Reg.Enabled(ctx, "monitor") || srv.Reg.Enabled(ctx, "databases") {
-		docker = runtime.NewDocker(dockerSocket)
-		srv.Runtime = docker
-	}
-	if srv.Reg.Enabled(ctx, "terminal") {
-		srv.Terminals = terminal.NewStore(db)
-		srv.Tickets = terminal.NewTickets(terminal.TicketTTL)
-		srv.HostShells = terminal.HelperSpawner{Socket: envOr("CODEPLO_PTY_SOCKET", "/run/codeplo-pty/pty.sock")}
-		if n, err := srv.Terminals.Recover(ctx); err != nil {
-			slog.Warn("terminal session recovery failed", "err", err)
-		} else if n > 0 {
-			slog.Info("closed terminal sessions left open by a previous run", "count", n)
-		}
+	docker := runtime.NewDocker(dockerSocket)
+	srv.Runtime = docker
+
+	// Terminal services are built whatever the flag says; the route gate is what turns the module on and off.
+	srv.Terminals = terminal.NewStore(db)
+	srv.Tickets = terminal.NewTickets(terminal.TicketTTL)
+	srv.HostShells = terminal.HelperSpawner{Socket: envOr("CODEPLO_PTY_SOCKET", "/run/codeplo-pty/pty.sock")}
+	if n, err := srv.Terminals.Recover(ctx); err != nil {
+		slog.Warn("terminal session recovery failed", "err", err)
+	} else if n > 0 {
+		slog.Info("closed terminal sessions left open by a previous run", "count", n)
 	}
 
 	// Git sources: connections, deploy keys, webhook secrets and hook tokens. Everything here is database and
 	// master-key work, so it wires without a container runtime -- an operator can configure a source, and the key
 	// it needs, before Docker is reachable.
-	if srv.Reg.Enabled(ctx, "git") {
-		srv.Git = git.New(db, key)
-	}
+	srv.Git = git.New(db, key)
 
 	// The GitHub App is a daemon-level credential like the S3 destination rather than a database row: the private
 	// key is the file GitHub handed out when the App was created, and a route that could write one after boot would
@@ -138,12 +160,10 @@ func run() error {
 	// Template catalog: the embedded bundle plus the operator's drop-in directory. The bundled files are read from
 	// the binary, so wiring it cannot fail; a file that does not parse is logged here, which is where an operator
 	// who has just dropped one in is looking before they try the panel.
-	if srv.Reg.Enabled(ctx, "templates") {
-		srv.Templates = &templates.Service{Catalog: templates.Catalog{Dir: cfg.TemplatesDir}, DB: db, Key: key}
-		_, issues := srv.Templates.List()
-		for _, is := range issues {
-			slog.Warn("template file is not in the catalog", "file", is.File, "reason", is.Reason)
-		}
+	srv.Templates = &templates.Service{Catalog: templates.Catalog{Dir: cfg.TemplatesDir}, DB: db, Key: key}
+	_, tplIssues := srv.Templates.List()
+	for _, is := range tplIssues {
+		slog.Warn("template file is not in the catalog", "file", is.File, "reason", is.Reason)
 	}
 
 	// Operations services: channels, metrics, backups and resource cron. Built before the deploy engine because the
@@ -159,7 +179,7 @@ func run() error {
 	// work that assumes a clean host. If Docker is down this cannot complete, and the daemon still boots -- the
 	// queue simply reports the runtime as unavailable per deployment instead of the whole panel failing.
 	var logSweep func(context.Context) error
-	if srv.Reg.Enabled(ctx, "deploy") && docker != nil {
+	if docker != nil {
 		eng := deploy.New(deploy.Deps{
 			DB: db, Key: key, Runtime: docker,
 			Builder: &builders.CLI{Socket: dockerSocket},
