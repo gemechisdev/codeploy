@@ -12,7 +12,7 @@ import { QueryBoundary } from '@/components/app/QueryBoundary';
 import { StatusBadge } from '@/components/app/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
-import { Field, Input, Select, Textarea } from '@/components/ui/input';
+import { Field, Input, Select } from '@/components/ui/input';
 import { cn } from '@/lib/cn';
 import { CheckCard } from '@/features/security/CheckCard';
 import { QrCode } from './QrCode';
