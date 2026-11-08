@@ -57,3 +57,11 @@ sudo -u codeplo codeplo extensions dead
 
 ### Installer
 - Auto-installs Caddy static binary to `/usr/bin/caddy` when not present.
+
+
+## Deploy types (app / static / compose) — 2026-11-09
+
+- **App / static**: build from Git with Dockerfile **or auto-detect** (Node/Next/Vite, Python, Go, Rust, PHP, Ruby, static index.html) via Dockerfile.codegen.
+- **Compose**: docker compose up -d --build for multi-service stacks.
+- Feature flags deploy.static / deploy.compose enabled by default (migration 0009_deploy_types.sql).
+- New resource dialog offers App, Static site, and Compose again with guidance.

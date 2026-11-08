@@ -71,6 +71,9 @@ func (t *Template) Plan(in PlanInput) (*Plan, error) {
 		// Two databases sharing one data directory is corruption, not a blue/green deploy: a template that owns
 		// persistent state takes the rollout that never has two containers alive at once.
 		cfg.Rollout = "stop_first"
+		// Match official image non-root UIDs so entrypoints do not need setuid under no-new-privileges.
+		u := "999"
+		cfg.Isolation.User = &u
 	}
 	plan.Cfg = cfg
 	out, err := json.Marshal(cfg)

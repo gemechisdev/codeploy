@@ -72,8 +72,13 @@ func (r *run) specFor(role string) policy.Container {
 			runtime.LabelResource: r.res.ID, runtime.LabelDeployment: r.id, runtime.LabelRole: role,
 		},
 	}
-	if cfg.Isolation.User != nil {
-		c.User = *cfg.Isolation.User
+	if cfg.Isolation.User != nil && strings.TrimSpace(*cfg.Isolation.User) != "" {
+		c.User = strings.TrimSpace(*cfg.Isolation.User)
+	} else if r.res.Type == "database" {
+		// Official redis/postgres/mysql images drop root→999 via setpriv/gosu. Our policy always sets
+		// no-new-privileges:true, so that drop fails (setresuid EPERM) and the process never listens.
+		// Starting as 999 skips the drop; volume dirs are 0777 so the data path stays writable.
+		c.User = "999"
 	}
 	for _, v := range r.vols {
 		c.Mounts = append(c.Mounts, policy.Mount{Type: "bind", Source: path.Join(r.e.cfg.VolumesRoot, r.res.Slug, v.Name), Target: v.MountPath})
@@ -99,9 +104,11 @@ func (r *run) ensureVolumeDirs() error {
 func (r *run) prepare(ctx context.Context, _ context.CancelCauseFunc) error {
 	e := r.e
 	switch r.res.Type {
-	case "app", "database":
+	case "app", "database", "static", "compose":
+		// static: containerized static/nginx (or auto-detected static pack).
+		// compose: docker compose project; still uses clone + compose up in acquire.
 	default:
-		return fail("preflight", "%s resources cannot be deployed yet: only app and database resources are supported in this build", r.res.Type)
+		return fail("preflight", "%s is not a supported resource type", r.res.Type)
 	}
 	// A database is the second type this engine runs, and it is the same container work with three differences: it
 	// is observed by connecting to its port rather than asking a path (Postgres, MySQL and Redis answer their own
@@ -358,12 +365,39 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 	// so the pending marker a push deserves can only be written once the push's commit has been checked out.
 	e.reportOutcome(ctx, r)
 
+	// Compose stacks: docker compose up in the clone (Coolify-style). Single-service apps keep the image path below.
+	if r.res.Type == "compose" {
+		project := "cpl-" + r.res.Slug
+		composeFile := deref(r.res.Cfg.Image.Dockerfile, "") // reuse dockerfile field for compose file name when set
+		// Image.Dockerfile is normally a Dockerfile path; for compose resources operators may set compose.yaml here.
+		if composeFile == "Dockerfile" || composeFile == "" {
+			composeFile = ""
+		}
+		r.logw.Sys("docker compose up (project " + project + ")")
+		if err := e.b.ComposeUp(ctx, project, dest, composeFile, r.logFn()); err != nil {
+			return "", fail("build", "compose up failed: %v", err)
+		}
+		r.composeDone = true
+		// Prefer the primary container as the deployment's identity for logs/resolve.
+		if c, err := e.rt.Resolve(ctx, r.res.ID); err == nil {
+			r.newCID = c.ID
+		}
+		return "compose:" + project, nil
+	}
+
 	ctxRel := path.Join(src.BuildPath, deref(r.res.Cfg.Image.Context, "."))
 	ctxDir, err := builders.ConfinePath(dest, ctxRel)
 	if err != nil {
 		return "", fail("build", "Build context rejected: %v", err)
 	}
-	dfRel := path.Join(ctxRel, deref(r.res.Cfg.Image.Dockerfile, deref(&src.Dockerfile, "Dockerfile")))
+	// Prefer operator Dockerfile; otherwise auto-detect Node/Python/Go/Rust/static/… (Coolify-style packs).
+	preferred := deref(r.res.Cfg.Image.Dockerfile, deref(&src.Dockerfile, "Dockerfile"))
+	pack, err := builders.EnsureDockerfile(ctxDir, preferred, r.logFn())
+	if err != nil {
+		return "", fail("build", "%v", err)
+	}
+	r.logw.Sys(pack.Note)
+	dfRel := path.Join(ctxRel, pack.Dockerfile)
 	df, err := builders.ConfinePath(dest, dfRel)
 	if err != nil {
 		return "", fail("build", "Dockerfile rejected: %v", err)
@@ -507,6 +541,33 @@ func (r *run) stopOldFirst(ctx context.Context) bool {
 // opted into stop_first for very small hosts.
 func (r *run) start(ctx context.Context, _ context.CancelCauseFunc) error {
 	e := r.e
+	if r.composeDone {
+		// Stack is already running from compose up. Resolve a container and record upstream for the edge.
+		if r.newCID == "" {
+			if c, err := e.rt.Resolve(ctx, r.res.ID); err == nil {
+				r.newCID = c.ID
+			}
+		}
+		if r.newCID == "" {
+			// Fall back: any container on the environment network is better than failing the deploy.
+			r.logw.Sys("compose is up; no codeplo.resource label found — set container labels or publish a domain after inspecting docker compose ps")
+			r.upstream = "127.0.0.1:" + strconv.Itoa(r.res.Cfg.Port)
+			_, _ = e.db.ExecContext(ctx, `UPDATE deployments SET upstream=?, container_id=? WHERE id=?`, r.upstream, r.newCID, r.id)
+			return nil
+		}
+		st, err := e.rt.InspectContainer(ctx, r.newCID, r.network)
+		if err != nil {
+			return err
+		}
+		port := r.res.Cfg.Port
+		if port <= 0 {
+			port = 80
+		}
+		r.upstream = st.IP + ":" + strconv.Itoa(port)
+		r.logw.Sys("compose service at " + r.upstream)
+		_, err = e.db.ExecContext(ctx, `UPDATE deployments SET upstream=?, container_id=? WHERE id=?`, r.upstream, r.newCID, r.id)
+		return err
+	}
 	if err := r.ensureVolumeDirs(); err != nil {
 		return err
 	}

@@ -377,6 +377,8 @@ type run struct {
 	switched bool
 	prev     Dep // the deployment that was active before the switch, when any
 	buildMem int64
+	// composeDone means acquire already brought the stack up with docker compose; start() only resolves upstream.
+	composeDone bool
 }
 
 // Run executes one deployment end to end. It returns nothing: the outcome is the deployment's row.

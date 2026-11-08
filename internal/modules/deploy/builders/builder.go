@@ -52,6 +52,8 @@ type Builder interface {
 	Clone(ctx context.Context, src GitSource, dest string, log LogFunc) (CloneResult, error)
 	Build(ctx context.Context, req BuildRequest, log LogFunc) error
 	Pull(ctx context.Context, req PullRequest, log LogFunc) error
+	// ComposeUp starts a docker compose project (multi-service). Optional for fakes: return an error if unsupported.
+	ComposeUp(ctx context.Context, project, dir, composeFile string, log LogFunc) error
 }
 
 var (

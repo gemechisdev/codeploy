@@ -82,8 +82,10 @@ func specForConfig(res Resource, vols []Volume, volumesRoot string) policy.Conta
 		Aliases: []string{res.Slug}, CapAdd: cfg.Isolation.CapAdd, Network: "cpl-env-" + res.EnvID,
 		MemoryBytes: int64(cfg.Limits.MemoryMB) << 20, NanoCPUs: int64(cfg.Limits.CPUs * 1e9), PidsLimit: int64(cfg.Limits.PidsLimit),
 	}
-	if cfg.Isolation.User != nil {
-		c.User = *cfg.Isolation.User
+	if cfg.Isolation.User != nil && strings.TrimSpace(*cfg.Isolation.User) != "" {
+		c.User = strings.TrimSpace(*cfg.Isolation.User)
+	} else if res.Type == "database" {
+		c.User = "999"
 	}
 	for _, v := range vols {
 		c.Mounts = append(c.Mounts, policy.Mount{Type: "bind", Source: path.Join(volumesRoot, res.Slug, v.Name), Target: v.MountPath})

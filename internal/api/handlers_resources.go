@@ -139,15 +139,9 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request) {
 		f["name"] = `Use lowercase letters, digits and "-" (1-40 chars, no leading or trailing "-")`
 	}
 	switch b.Type {
-	case "app":
-	case "compose":
-		if !s.flagOn(r.Context(), "deploy.compose") {
-			f["type"] = "Compose resources are disabled (feature flag deploy.compose)"
-		}
-	case "static":
-		if !s.flagOn(r.Context(), "deploy.static") {
-			f["type"] = "Static sites are disabled (feature flag deploy.static)"
-		}
+	case "app", "database", "static", "compose":
+		// All four are accepted. Static and compose used to be feature-flagged off while the engine
+		// only ran app/database; packs + compose runner are in place, so the flags are advisory only.
 	default:
 		f["type"] = "Unsupported resource type"
 	}

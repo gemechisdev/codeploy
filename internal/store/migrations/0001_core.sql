@@ -45,8 +45,8 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
 INSERT OR IGNORE INTO feature_flags(key, description, enabled, release_gated) VALUES
  ('hardening.apply_tier2','Allow applying the reversible default-deny firewall (Tier 2). Release-gated: enable only after the VM fault-injection matrix passes.',0,1),
  ('hardening.apply_tier3','Allow applying guarded SSH hardening (Tier 3). Release-gated; plan-only by default.',0,1),
- ('deploy.compose','Docker Compose resources (checked against the isolation policy).',0,0),
- ('deploy.static','Static site hosting served directly by Caddy.',0,0),
+ ('deploy.compose','Docker Compose resources (checked against the isolation policy).',1,0),
+ ('deploy.static','Static site / SPA (built and served in a container, nginx or auto-detected pack).',1,0),
  ('registry_pull_hook','Registry-pull deploy hook for GitHub Actions.',1,0);
 INSERT OR IGNORE INTO modules(key, name, description, enabled, core, version, phase, ord) VALUES
  ('hardening','Host hardening','Audit, safe fixes, reversible firewall, guarded SSH.',1,1,'1.2.0','P2',1),

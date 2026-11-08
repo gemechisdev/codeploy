@@ -305,3 +305,25 @@ func (c *CLI) Pull(ctx context.Context, req PullRequest, log LogFunc) error {
 	out, err := run(ctx, "", env, log, c.docker(), "pull", "--", req.Ref)
 	return classify(out, err)
 }
+
+// ComposeUp runs `docker compose up -d --build` for a project directory.
+// project is used as -p so containers are namespaced and easy to tear down.
+func (c *CLI) ComposeUp(ctx context.Context, project, dir, composeFile string, log LogFunc) error {
+	if composeFile == "" {
+		composeFile = "compose.yaml"
+		for _, n := range []string{"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"} {
+			if st, err := os.Stat(filepath.Join(dir, n)); err == nil && !st.IsDir() {
+				composeFile = n
+				break
+			}
+		}
+	}
+	home, err := c.tmp("compose-home-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(home)
+	env := c.baseEnv(home)
+	out, err := run(ctx, dir, env, log, c.docker(), "compose", "-p", project, "-f", composeFile, "up", "-d", "--build", "--remove-orphans")
+	return classify(out, err)
+}
