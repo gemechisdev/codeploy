@@ -127,7 +127,11 @@ UPGRADE=0
 [ -f /var/lib/codeplo/codeplo.db ] && UPGRADE=1
 WAS_ACTIVE=0
 systemctl is-active --quiet codeplod 2>/dev/null && WAS_ACTIVE=1
-id codeplo >/dev/null 2>&1 || useradd --system --home /var/lib/codeplo --shell /usr/sbin/nologin codeplo
+# Ensure the system group exists first so SocketGroup=codeplo and the service User= can resolve it.
+getent group codeplo >/dev/null 2>&1 || groupadd --system codeplo
+id codeplo >/dev/null 2>&1 || useradd --system --gid codeplo --home /var/lib/codeplo --shell /usr/sbin/nologin codeplo
+# Make sure the service user is in its own group (covers older installs that created the user differently).
+id -nG codeplo | grep -qw codeplo || usermod -aG codeplo codeplo
 install -m 0755 "codeplod_linux_$ARCH" /usr/local/bin/codeplod
 install -m 0755 "codeplo_linux_$ARCH" /usr/local/bin/codeplo
 install -m 0644 codeplod.service /etc/systemd/system/codeplod.service
@@ -210,6 +214,11 @@ if ! systemctl enable --now codeplo-caddy; then
 fi
 # Host shell helper: socket-activated, one root process per shell, only the codeplo user may connect.
 systemctl enable --now codeplo-pty.socket || echo "warning: codeplo-pty.socket did not start; the host shell stays unavailable." >&2
+# Guarantee the runtime directory is group-accessible even if a previous install left it root:root.
+if [ -d /run/codeplo-pty ]; then
+  chown root:codeplo /run/codeplo-pty 2>/dev/null || true
+  chmod 0750 /run/codeplo-pty 2>/dev/null || true
+fi
 systemctl enable --now codeplod
 # `enable --now` leaves a running service on its old binary; an upgrade has to restart it to take the new one.
 if [ "$WAS_ACTIVE" = 1 ]; then

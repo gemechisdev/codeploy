@@ -105,7 +105,7 @@ export function DeploymentsTab({ resource }: { resource: Resource }) {
                   <TD className="max-w-52 truncate font-mono text-[11px] text-secondary" title={x.image_ref}>{x.image_ref}</TD>
                   <TD className="font-mono text-[11px] text-muted">{shortDigest(x.image_digest)}</TD>
                   <TD title={absTime(x.started_at)} className="whitespace-nowrap text-secondary">{relTime(x.started_at, now)}</TD>
-                  <TD className="tabular-nums text-secondary">{x.finished_at ? duration((Date.parse(x.finished_at) - Date.parse(x.started_at)) / 1000) : '…'}</TD>
+                  <TD className="tabular-nums text-secondary">{x.finished_at ? duration((Date.parse(x.finished_at) - Date.parse(x.started_at || '')) / 1000) : '…'}</TD>
                   <TD><Button size="sm" variant="secondary" onClick={() => setOpen(x.id)}>Details</Button></TD>
                 </TR>))}</TBody>
             </Table>

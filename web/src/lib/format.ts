@@ -17,8 +17,9 @@ export function bytes(n: number): string {
   do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
   return `${v.toFixed(v < 10 ? 1 : 0)} ${u[i]}`;
 }
-/** 125 -> "2m 05s" */
+/** 125 -> "2m 05s". Returns "—" when the input is not a finite number (malformed timestamps). */
 export function duration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds)) return '—';
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60;
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : m ? `${m}m ${String(sec).padStart(2, '0')}s` : `${sec}s`;

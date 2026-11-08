@@ -21,7 +21,7 @@ export function BackupsPage() {
       <PageHeader title="Backups" description="Scheduled database backups. Restoring overwrites current data and needs step-up verification." />
       <div className="space-y-4">
         <Card><CardHeader title="Schedules" />
-          <QueryBoundary query={sched} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No backup schedules. Add one from a database resource.</p>} rows={3}>
+          <QueryBoundary query={sched} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No backup schedules. Add one from a database resource.</p>} rows={3}>
             {(d) => (
               <Table><THead><tr><TH>Resource</TH><TH>Cron</TH><TH>Destination</TH><TH>Retention</TH><TH>Last run</TH><TH><span className="sr-only">Actions</span></TH></tr></THead>
                 <TBody>{d.items.map((s) => (
@@ -30,7 +30,7 @@ export function BackupsPage() {
                     <TD>{can('backup:manage') && <Button size="sm" variant="secondary" loading={run.isPending && run.variables === s.id} onClick={() => run.mutate(s.id, { onSuccess: () => toast.success('Backup started.'), onError: (e) => toast.error(errorMessage(e)) })}><Play className="size-3" />Run now</Button>}</TD></TR>))}</TBody></Table>)}
           </QueryBoundary></Card>
         <Card><CardHeader title="Recent runs" />
-          <QueryBoundary query={runs} isEmpty={(d) => d.items.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No backup runs yet.</p>} rows={3}>
+          <QueryBoundary query={runs} isEmpty={(d) => !d?.items?.length} empty={<p className="p-6 text-center text-xs text-muted">No backup runs yet.</p>} rows={3}>
             {(d) => (
               <Table><THead><tr><TH>Resource</TH><TH>Status</TH><TH>Size</TH><TH>Started</TH><TH>Location</TH><TH><span className="sr-only">Actions</span></TH></tr></THead>
                 <TBody>{d.items.map((r) => (

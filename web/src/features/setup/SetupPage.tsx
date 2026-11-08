@@ -76,11 +76,14 @@ function TotpStep({ onDone }: { onDone: () => void }) {
     <form className="space-y-3" noValidate onSubmit={(e) => { e.preventDefault(); verify.mutate(code, { onSuccess: (r) => setCodes(r.recovery_codes) }); }}>
       <p className="text-xs text-secondary">Scan the QR code with an authenticator app, then enter the 6-digit code it shows.</p>
       <QueryBoundary query={{ data: enroll.data, isPending: enroll.isPending || enroll.isIdle, isError: enroll.isError, error: enroll.error, refetch: async () => { enroll.mutate(); return {} as never; } }} rows={2}>
-        {(d) => (
+        {(d) => {
+          if (!d?.otpauth_uri || !d?.secret) return null;
+          return (
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
             <QrCode value={d.otpauth_uri} label="Authenticator QR code" />
             <div className="min-w-0 space-y-1"><p className="text-[11px] text-muted">Can’t scan? Enter this key manually:</p><div className="flex items-center gap-2"><code className="break-all rounded bg-surface-muted px-2 py-1 font-mono text-xs text-primary">{d.secret}</code><CopyButton value={d.secret} iconOnly label="Copy key" /></div></div>
-          </div>)}
+          </div>);
+        }}
       </QueryBoundary>
       <Field label="6-digit code" error={err?.fields.code ?? (err ? err.message : undefined)}>{(a) => <Input {...a} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} className="font-mono tracking-[0.4em]" />}</Field>
       <div className="flex justify-end"><Button type="submit" loading={verify.isPending} disabled={code.length !== 6 || !enroll.data}>Verify</Button></div>

@@ -152,7 +152,7 @@ func (s *Service) ListSchedules(ctx context.Context, q Querier, resourceID strin
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Schedule
+	out := make([]Schedule, 0)
 	for rows.Next() {
 		var (
 			sc                 Schedule
@@ -214,7 +214,7 @@ func (s *Service) ListRuns(ctx context.Context, q Querier, limit int, cursor str
 		return nil, "", err
 	}
 	defer rows.Close()
-	var out []Run
+	out := make([]Run, 0)
 	for rows.Next() {
 		rn, err := scanRun(rows)
 		if err != nil {

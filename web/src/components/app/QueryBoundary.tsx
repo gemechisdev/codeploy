@@ -13,6 +13,8 @@ export function QueryBoundary<T>({ query, isEmpty, empty, rows = 4, children }: 
   if (query.isPending) return <SkeletonRows rows={rows} />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   const d = query.data as T;
-  if (isEmpty?.(d)) return <>{empty ?? <EmptyState title={t('state.nothingHere')} />}</>;
+  // Treat missing/null data as empty so callers that do `d.items.length` never crash when a Go nil
+  // slice marshalled to JSON null (or a partial response) arrives.
+  if (d == null || isEmpty?.(d)) return <>{empty ?? <EmptyState title={t('state.nothingHere')} />}</>;
   return <>{children(d)}</>;
 }

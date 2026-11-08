@@ -413,6 +413,9 @@ func (s *Server) listBackupSchedules(w http.ResponseWriter, r *http.Request) {
 		internalErr(w, err)
 		return
 	}
+	if items == nil {
+		items = []databases.Schedule{}
+	}
 	writeJSON(w, 200, map[string]any{"items": items})
 }
 
@@ -429,6 +432,9 @@ func (s *Server) listResourceBackups(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		internalErr(w, err)
 		return
+	}
+	if items == nil {
+		items = []databases.Schedule{}
 	}
 	writeJSON(w, 200, map[string]any{"items": items})
 }
@@ -483,6 +489,9 @@ func (s *Server) listBackupRuns(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		internalErr(w, err)
 		return
+	}
+	if items == nil {
+		items = []databases.Run{}
 	}
 	var n any
 	if next != "" {

@@ -17,7 +17,7 @@ func HelperHint(err error) string {
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return "the socket exists but nothing is listening. Run: sudo systemctl status codeplo-pty.socket"
 	case errors.Is(err, os.ErrPermission):
-		return "the panel user may not open the helper socket (it must belong to group codeplo). Check: ls -l /run/codeplo-pty/pty.sock"
+		return "the panel user may not open the helper socket (socket and /run/codeplo-pty must be group codeplo). Check: ls -ld /run/codeplo-pty /run/codeplo-pty/pty.sock; then: sudo chown root:codeplo /run/codeplo-pty && sudo chmod 0750 /run/codeplo-pty && sudo systemctl restart codeplo-pty.socket"
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return "the helper accepted the connection and closed it before answering. Run: sudo journalctl -u 'codeplo-pty@*' -n 50"
 	}
