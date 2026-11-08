@@ -178,7 +178,7 @@ function AuditTab() {
           <Field label="Actor">{(a) => <Input {...a} value={filter.actor ?? ''} onChange={(e) => setFilter({ ...filter, actor: e.target.value || undefined })} />}</Field>
         </div>
       </CardBody>
-      <QueryBoundary query={{ ...q, data: rows } as never} isEmpty={(d: unknown[]) => d.length === 0} empty={<p className="p-6 text-center text-xs text-muted">No matching events.</p>}>{() => (
+      <QueryBoundary query={{ ...q, data: rows } as never} isEmpty={(d: unknown[]) => !d?.length} empty={<p className="p-6 text-center text-xs text-muted">No matching events.</p>}>{() => (
         <div className="overflow-x-auto"><Table><THead><tr><TH>#</TH><TH>When</TH><TH>Actor</TH><TH>Action</TH><TH>Target</TH><TH>Hash</TH></tr></THead>
           <TBody>{rows.map((r) => (
             <TR key={r.id}><TD className="tabular-nums">{r.seq}</TD><TD title={absTime(r.at)}>{relTime(r.at)}</TD><TD>{r.actor_email ?? r.actor_type}</TD><TD className="font-mono text-[11px]">{r.action}</TD><TD className="font-mono text-[11px] text-muted">{r.target_type}:{r.target_id}</TD>
