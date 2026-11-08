@@ -20,7 +20,7 @@ function Chart({ title, points, series, unit, max }: { title: string; points: Ho
     const grid = cs.getPropertyValue('--border-subtle').trim() || '#382054'; const axis = cs.getPropertyValue('--text-muted').trim() || '#8d73a3';
     const plot = new uPlot({
       width: el.current.clientWidth, height: 180, padding: [8, 8, 0, 0], legend: { show: false }, cursor: { drag: { x: false, y: false } },
-      scales: { y: { range: (_u, _lo, hi) => [0, max ?? Math.max(hi * 1.15, 1)] } },
+      scales: { y: { range: (_u, _lo, hi) => [0, max ?? Math.max((Number.isFinite(hi) ? hi : 0) * 1.15, 1)] } },
       axes: [{ stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { show: false } }, { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { show: false }, size: 46, values: (_u, v) => v.map((n) => `${Math.round(n)}${unit}`) }],
       series: [{}, ...series.map((s) => ({ label: s.label, stroke: s.color, width: 1.75, fill: `${s.color}22`, points: { show: false } }))],
     }, data, el.current);

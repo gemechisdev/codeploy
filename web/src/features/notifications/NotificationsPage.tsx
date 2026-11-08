@@ -84,7 +84,17 @@ export function NotificationsPage() {
               <CardBody className="p-0"><ul className="divide-y divide-subtle">{d.items.map((r) => (
                 <li key={r.id} className="flex flex-col gap-2 px-4 py-3 text-xs">
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="min-w-0 flex-1"><p className="font-semibold text-primary">{r.title}</p><p className="text-muted">{r.condition} · threshold {r.threshold} · cooldown {r.cooldown_s}s · {r.last_triggered_at ? `last fired ${relTime(r.last_triggered_at)}` : 'never fired'}</p></div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-primary">{r.title}
+                        {r.enabled && !(r.channel_ids?.length) && (
+                          <Badge tone="amber" className="ml-1.5 align-middle">no channels</Badge>
+                        )}
+                      </p>
+                      <p className="text-muted">{r.condition} · threshold {r.threshold} · cooldown {r.cooldown_s}s · {r.last_triggered_at ? `last fired ${relTime(r.last_triggered_at)}` : 'never fired'}</p>
+                      {r.enabled && !(r.channel_ids?.length) && (
+                        <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">Enabled but no channel selected — firings are recorded, nothing is delivered.</p>
+                      )}
+                    </div>
                     <Switch aria-label={`${r.title} enabled`} checked={r.enabled} disabled={!manage} onCheckedChange={(enabled) => patchRule.mutate({ id: r.id, body: { enabled } }, { onError: err })} />
                   </div>
                   {manage && (

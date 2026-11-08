@@ -28,7 +28,7 @@ func LoadEnv(ctx context.Context, db *sql.DB, key []byte, resourceID string) ([]
 		return nil, err
 	}
 	defer rows.Close()
-	var out []EnvVar
+	out := make([]EnvVar, 0)
 	for rows.Next() {
 		var v EnvVar
 		var blob []byte
@@ -51,9 +51,9 @@ func LoadEnv(ctx context.Context, db *sql.DB, key []byte, resourceID string) ([]
 func SecretValues(ctx context.Context, db *sql.DB, key []byte, resourceID string) []string {
 	vs, err := LoadEnv(ctx, db, key, resourceID)
 	if err != nil {
-		return nil
+		return []string{}
 	}
-	var out []string
+	out := make([]string, 0)
 	for _, v := range vs {
 		if v.Secret {
 			out = append(out, v.Value)
@@ -71,7 +71,7 @@ func loadVolumes(ctx context.Context, db *sql.DB, resourceID string) ([]Volume, 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Volume
+	out := make([]Volume, 0)
 	for rows.Next() {
 		var v Volume
 		if err := rows.Scan(&v.ID, &v.Name, &v.MountPath); err != nil {

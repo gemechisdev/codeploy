@@ -74,7 +74,7 @@ func (r *Reconciler) sites(ctx context.Context) ([]Site, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Site
+	out := make([]Site, 0)
 	for rows.Next() {
 		var s Site
 		var kind string

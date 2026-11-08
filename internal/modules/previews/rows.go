@@ -102,7 +102,7 @@ func orphans(ctx context.Context, q git.Querier, limit int) ([]Preview, error) {
 
 func scanPreviews(rows *sql.Rows) ([]Preview, error) {
 	defer rows.Close()
-	var out []Preview
+	out := make([]Preview, 0)
 	for rows.Next() {
 		var p Preview
 		if err := rows.Scan(p.fields()...); err != nil {
@@ -138,7 +138,7 @@ func readVolumes(ctx context.Context, q git.Querier, resourceID string) ([]volum
 		return nil, err
 	}
 	defer rows.Close()
-	var out []volumeSeed
+	out := make([]volumeSeed, 0)
 	for rows.Next() {
 		var v volumeSeed
 		if err := rows.Scan(&v.name, &v.mount); err != nil {
@@ -171,7 +171,7 @@ func (s *Service) Rows(ctx context.Context) ([]Row, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Row
+	out := make([]Row, 0)
 	for rows.Next() {
 		var r Row
 		var gone int

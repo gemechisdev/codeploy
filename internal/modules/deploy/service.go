@@ -309,7 +309,7 @@ func (e *Engine) ResourceTags(ctx context.Context, resourceID string) []string {
 		return nil
 	}
 	defer rows.Close()
-	var out []string
+	out := make([]string, 0)
 	for rows.Next() {
 		var slug, id string
 		if rows.Scan(&slug, &id) == nil {

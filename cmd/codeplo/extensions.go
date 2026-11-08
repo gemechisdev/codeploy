@@ -38,7 +38,11 @@ func extensionsCommand(args []string) error {
 			return nil
 		}
 		for _, e := range items {
-			fmt.Printf("%s\t%s\t%s\n", e.ID, e.Name, e.Endpoint)
+			ev := strings.Join(e.Events, ",")
+			if ev == "" {
+				ev = "-"
+			}
+			fmt.Printf("%s\t%s\t%s\tevents=%s\n", e.ID, e.Name, e.Endpoint, ev)
 		}
 		return nil
 	case "register":

@@ -63,11 +63,27 @@ func (s *Service) List(ctx context.Context) ([]Extension, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Extension
+	out := make([]Extension, 0)
 	for rows.Next() {
 		var e Extension
 		if err := rows.Scan(&e.ID, &e.Name, &e.Endpoint, &e.CreatedAt); err != nil {
 			return nil, err
+		}
+		erows, err := s.DB.QueryContext(ctx, `SELECT event FROM extension_subscriptions WHERE extension_id=? ORDER BY event`, e.ID)
+		if err != nil {
+			return nil, err
+		}
+		for erows.Next() {
+			var ev string
+			if err := erows.Scan(&ev); err != nil {
+				erows.Close()
+				return nil, err
+			}
+			e.Events = append(e.Events, ev)
+		}
+		erows.Close()
+		if e.Events == nil {
+			e.Events = []string{}
 		}
 		out = append(out, e)
 	}
