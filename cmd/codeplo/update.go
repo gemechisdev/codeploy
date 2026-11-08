@@ -312,6 +312,51 @@ func resolveSource(from string, wantCosign bool) (string, func(), error) {
 	return dir, cleanup, nil
 }
 
+func parseChecksums(dir string) (map[string]string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "checksums.txt"))
+	if err != nil {
+		return nil, err
+	}
+	m := map[string]string{}
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if len(line) < 67 {
+			return nil, fmt.Errorf("malformed checksum line %q", line)
+		}
+		sep := line[64:66]
+		if sep != "  " && sep != " *" {
+			return nil, fmt.Errorf("malformed checksum line %q", line)
+		}
+		hash := strings.ToLower(line[:64])
+		if _, err := hex.DecodeString(hash); err != nil {
+			return nil, fmt.Errorf("malformed checksum hash in %q", line)
+		}
+		name := line[66:]
+		if !safeAssetName(name) {
+			return nil, fmt.Errorf("checksums.txt has an unsafe filename %q", name)
+		}
+		if _, ok := m[name]; ok {
+			return nil, fmt.Errorf("duplicate checksum entry for %q", name)
+		}
+		m[name] = hash
+	}
+	return m, nil
+}
+
+// safeAssetName refuses separators, absolute paths and dot segments, so a crafted checksum line can never name a
+// file outside the release directory or masquerade as an expected asset.
+func safeAssetName(name string) bool {
+	if name == "" || name == "." || name == ".." || filepath.IsAbs(name) {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return false
+	}
+	return filepath.Base(name) == name
+}
+
 func verifyAssets(dir string) error {
 	sums, err := parseChecksums(dir)
 	if err != nil {

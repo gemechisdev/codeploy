@@ -122,6 +122,11 @@ fi
 grep -E "$ASSET_RE" checksums.txt | sha256sum -c -
 [ "$(grep -cE "$ASSET_RE" checksums.txt)" -eq 7 ] || { echo "checksums.txt is missing an entry" >&2; exit 1; }
 
+# An existing install is upgraded in place: data, users, keys and setup state are left alone.
+UPGRADE=0
+[ -f /var/lib/codeplo/codeplo.db ] && UPGRADE=1
+WAS_ACTIVE=0
+systemctl is-active --quiet codeplod 2>/dev/null && WAS_ACTIVE=1
 id codeplo >/dev/null 2>&1 || useradd --system --home /var/lib/codeplo --shell /usr/sbin/nologin codeplo
 install -m 0755 "codeplod_linux_$ARCH" /usr/local/bin/codeplod
 install -m 0755 "codeplo_linux_$ARCH" /usr/local/bin/codeplo
@@ -154,7 +159,10 @@ install -d -m 0750 -o codeplo -g codeplo /var/lib/codeplo/caddy
 # Idempotent: an existing user and key are reused. Skip entirely with CODEPLO_NO_OPERATOR=1.
 OPERATOR_USER="${CODEPLO_OPERATOR_USER:-codeplo-ops}"
 OPERATOR_DIR=/var/lib/codeplo/operator
-if [ "${CODEPLO_NO_OPERATOR:-0}" != 1 ]; then
+# Only on a first install: an upgrade must not add a sudo-capable account to a host that finished setup long ago.
+if [ "$UPGRADE" = 1 ]; then
+  echo "existing install detected: keeping your data, users and operator as they are." >&2
+elif [ "${CODEPLO_NO_OPERATOR:-0}" != 1 ]; then
   [[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "invalid CODEPLO_OPERATOR_USER" >&2; exit 1; }
   operator_created=0
   if ! id "$OPERATOR_USER" >/dev/null 2>&1; then
@@ -203,6 +211,11 @@ fi
 # Host shell helper: socket-activated, one root process per shell, only the codeplo user may connect.
 systemctl enable --now codeplo-pty.socket || echo "warning: codeplo-pty.socket did not start; the host shell stays unavailable." >&2
 systemctl enable --now codeplod
+# `enable --now` leaves a running service on its old binary; an upgrade has to restart it to take the new one.
+if [ "$WAS_ACTIVE" = 1 ]; then
+  echo "restarting codeplod to run the new version (migrations apply on this boot)..." >&2
+  systemctl restart codeplod
+fi
 # The install only counts as done when the panel actually answers. A service that is "active" for a second and
 # then crash-looping would otherwise be reported as installed (systemctl --now does not wait for the failure).
 ready=0
