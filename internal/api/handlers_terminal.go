@@ -251,7 +251,11 @@ func (s *Server) termHost(w http.ResponseWriter, r *http.Request) {
 		s.endSession(sess.ID, "error")
 		switch {
 		case errors.Is(err, terminal.ErrHelperUnavailable):
-			s.wsFail(w, r, "the host shell helper is not installed or not running")
+			msg := "the host shell helper is not installed or not running"
+			if hint := terminal.HelperHint(err); hint != "" {
+				msg += ": " + hint
+			}
+			s.wsFail(w, r, msg)
 		case errors.Is(err, terminal.ErrRootDisabled):
 			s.wsFail(w, r, "the root shell is not enabled on this host")
 		case errors.Is(err, terminal.ErrBadUser):

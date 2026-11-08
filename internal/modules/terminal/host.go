@@ -38,7 +38,7 @@ func (h HelperSpawner) StartHost(ctx context.Context, req HelperRequest) (Proc, 
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(ctx, "unix", h.Socket)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrHelperUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrHelperUnavailable, err)
 	}
 	req.Cols, req.Rows = ClampSize(req.Cols, req.Rows)
 	b, _ := json.Marshal(req)
@@ -51,7 +51,7 @@ func (h HelperSpawner) StartHost(ctx context.Context, req HelperRequest) (Proc, 
 	line, err := r.ReadBytes('\n')
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("%w: %v", ErrHelperUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrHelperUnavailable, err)
 	}
 	var rep HelperReply
 	if err := json.Unmarshal(line, &rep); err != nil || !rep.OK {
