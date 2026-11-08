@@ -632,42 +632,49 @@ func (s *Service) lastNotified(ctx context.Context, ruleID, subject string) (tim
 	return t, nil
 }
 
-// reportFiring records that this incident told someone now, and sends the message.
-//
-// The state moves first and the delivery follows: a notification that failed is still an incident that was
-// reported, and re-notifying on every evaluator tick because the provider was unreachable would spam a channel
-// that is down for the same reason the host is.
+// reportFiring sends the alert and records the firing. Successful delivery starts the full cooldown;
+// a failed delivery uses a short retry window (~60s) so a downed channel is retried without per-tick spam.
 func (s *Service) reportFiring(ctx context.Context, r Rule, f firing, now time.Time, fresh bool) error {
 	ts := s.ts(now)
-	if fresh {
-		_, err := s.DB.ExecContext(ctx, `INSERT INTO alert_firings(rule_id,subject,first_fired_at,last_notified_at,occurrences) VALUES (?,?,?,?,1)`,
-			r.ID, f.subject, ts, ts)
-		if err != nil {
-			return err
-		}
-	} else {
-		if _, err := s.DB.ExecContext(ctx, `UPDATE alert_firings SET last_notified_at=?,occurrences=occurrences+1 WHERE rule_id=? AND subject=?`,
-			ts, r.ID, f.subject); err != nil {
-			return err
-		}
-	}
 	// last_triggered_at is what /system/status counts as an active alert, so it moves on detection: a rule with no
 	// channel configured still has to show that something is wrong.
 	if _, err := s.DB.ExecContext(ctx, `UPDATE alert_rules SET last_triggered_at=? WHERE id=?`, ts, r.ID); err != nil {
 		return err
 	}
-	if s.Notify == nil || len(r.ChannelIDs) == 0 {
-		return nil
+
+	delivered := false
+	if s.Notify != nil && len(r.ChannelIDs) > 0 {
+		subject := fmt.Sprintf("codeplo alert: %s — %s", r.Title, f.label)
+		body := fmt.Sprintf("Condition %s %s\nMeasured: %s\nRule: %s\nAt: %s", r.Condition, r.Threshold, f.measurement, r.Key, ts)
+		rep, err := s.Notify.Deliver(ctx, r.ChannelIDs, notify.Message{Subject: subject, Body: body, Level: "alert", At: now})
+		if err != nil {
+			slog.Warn("alerts: delivery error", "rule", r.Key, "err", err)
+		} else if rep.Sent == 0 {
+			slog.Warn("alerts: no channel accepted the notification", "rule", r.Key, "detail", rep.Detail)
+		} else {
+			delivered = true
+		}
 	}
-	subject := fmt.Sprintf("codeplo alert: %s — %s", r.Title, f.label)
-	body := fmt.Sprintf("Condition %s %s\nMeasured: %s\nRule: %s\nAt: %s", r.Condition, r.Threshold, f.measurement, r.Key, ts)
-	rep, err := s.Notify.Deliver(ctx, r.ChannelIDs, notify.Message{Subject: subject, Body: body, Level: "alert", At: now})
-	if err != nil {
-		slog.Warn("alerts: delivery error", "rule", r.Key, "err", err)
-	} else if rep.Sent == 0 {
-		slog.Warn("alerts: no channel accepted the notification", "rule", r.Key, "detail", rep.Detail)
+
+	// Cooldown clock: full cooldown after a successful send; a short retry window (60s) after a failure so a
+	// downed webhook is retried without spamming every evaluator tick.
+	notifyAt := now
+	if s.Notify != nil && len(r.ChannelIDs) > 0 && !delivered {
+		retry := 60 * time.Second
+		if time.Duration(r.CooldownS)*time.Second > retry {
+			notifyAt = now.Add(-time.Duration(r.CooldownS)*time.Second + retry)
+		}
 	}
-	return nil
+	notifyTS := s.ts(notifyAt)
+
+	if fresh {
+		_, err := s.DB.ExecContext(ctx, `INSERT INTO alert_firings(rule_id,subject,first_fired_at,last_notified_at,occurrences) VALUES (?,?,?,?,1)`,
+			r.ID, f.subject, ts, notifyTS)
+		return err
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE alert_firings SET last_notified_at=?,occurrences=occurrences+1 WHERE rule_id=? AND subject=?`,
+		notifyTS, r.ID, f.subject)
+	return err
 }
 
 func orDefault(v, def string) string {

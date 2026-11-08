@@ -119,18 +119,15 @@ function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
   // has_authorized_keys is unreliable under the daemon's ProtectHome sandbox, so only sudo gates the list.
   const usable = (cands.data?.items ?? []).filter((c) => c.sudo);
   const installOp = usable.find((c) => c.username === 'codeplo-ops');
-  // Prefer create when nothing is selectable (common on fresh WSL / single-user hosts).
-  const [mode, setMode] = useState<'existing' | 'create'>('existing');
+  // Panel runs as User=codeplo with NoNewPrivileges, so it cannot create OS users. Only pick an
+  // existing sudo user (the installer pre-creates codeplo-ops for the happy path).
+  const mode = 'existing' as const;
   const [user, setUser] = useState('');
-  const [key, setKey] = useState('');
   // Pre-select the operator the installer created so the happy path is a single click.
   useEffect(() => {
-    if (mode === 'existing' && !user && installOp) setUser(installOp.username);
-  }, [mode, user, installOp]);
+    if (!user && installOp) setUser(installOp.username);
+  }, [user, installOp]);
   const err = set.error instanceof ApiError ? set.error : null;
-
-  const genCmd = 'ssh-keygen -t ed25519 -C "codeplo-operator" -f ~/.ssh/codeplo_operator -N ""';
-  const showCmd = 'cat ~/.ssh/codeplo_operator.pub';
 
   return (
     <form
@@ -139,7 +136,7 @@ function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
       onSubmit={(e) => {
         e.preventDefault();
         set.mutate(
-          { mode, username: user, public_key: mode === 'create' ? key : undefined },
+          { mode, username: user },
           { onSuccess: onDone },
         );
       }}
@@ -149,100 +146,30 @@ function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
         another sudo user.
       </p>
 
-      <Field label="Operator">
-        {(a) => (
-          <Select
-            {...a}
-            value={mode}
-            onChange={(e) => {
-              setMode(e.target.value as 'existing' | 'create');
-              setUser('');
-            }}
-          >
-            <option value="existing">Use an existing user</option>
-            <option value="create">Create a new user</option>
-          </Select>
-        )}
-      </Field>
-
-      {mode === 'existing' ? (
-        <div className="space-y-2">
-          <Field label="Username" error={err?.fields.username}>
-            {(a) => (
-              <Select {...a} value={user} onChange={(e) => setUser(e.target.value)}>
-                <option value="">Select a user…</option>
-                {usable.map((c) => (
-                  <option key={c.username} value={c.username}>
-                    {c.username} (uid {c.uid})
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          {usable.length === 0 && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-secondary">
-              <p className="font-medium text-primary">No eligible users found</p>
-              <p className="mt-1">
-                A candidate must be a normal login user (uid ≥ 1000), in the <code className="font-mono">sudo</code> group,
-                Re-run the installer as root to create <code className="font-mono">codeplo-ops</code>, or add a sudo user on this host.
-              </p>
-            </div>
+      <div className="space-y-2">
+        <Field label="Username" error={err?.fields.username}>
+          {(a) => (
+            <Select {...a} value={user} onChange={(e) => setUser(e.target.value)}>
+              <option value="">Select a user…</option>
+              {usable.map((c) => (
+                <option key={c.username} value={c.username}>
+                  {c.username} (uid {c.uid})
+                </option>
+              ))}
+            </Select>
           )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <div className="rounded-lg border border-subtle bg-surface-muted/60 px-3 py-2.5 text-xs text-secondary space-y-2">
-            <p className="font-medium text-primary">Generate an SSH key (one-time)</p>
-            <ol className="list-decimal space-y-1.5 pl-4">
-              <li>
-                In a terminal on this machine (WSL, Git Bash, or PowerShell), run:
-                <div className="mt-1 flex items-start gap-2 rounded-md bg-canvas px-2 py-1.5 font-mono text-[11px] text-primary">
-                  <code className="flex-1 break-all">{genCmd}</code>
-                  <CopyButton value={genCmd} iconOnly label="Copy command" />
-                </div>
-              </li>
-              <li>
-                Copy the <strong>public</strong> key:
-                <div className="mt-1 flex items-start gap-2 rounded-md bg-canvas px-2 py-1.5 font-mono text-[11px] text-primary">
-                  <code className="flex-1 break-all">{showCmd}</code>
-                  <CopyButton value={showCmd} iconOnly label="Copy command" />
-                </div>
-              </li>
-              <li>
-                Paste the whole line below (starts with <code className="font-mono">ssh-ed25519</code> or{' '}
-                <code className="font-mono">ssh-rsa</code>).
-              </li>
-            </ol>
-            <p className="text-[11px] text-muted">
-              Keep the private key (<code className="font-mono">codeplo_operator</code>) safe — you will use it if you SSH
-              as this operator later. The panel only stores the public half.
+        </Field>
+        {usable.length === 0 && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-secondary">
+            <p className="font-medium text-primary">No eligible users found</p>
+            <p className="mt-1">
+              The panel cannot create OS users (it runs unprivileged). Re-run the installer as root to create{' '}
+              <code className="font-mono">codeplo-ops</code>, or add a sudo login user (uid ≥ 1000) on this host and refresh.
             </p>
           </div>
+        )}
+      </div>
 
-          <Field label="New username" error={err?.fields.username}>
-            {(a) => (
-              <Input
-                {...a}
-                className="font-mono"
-                placeholder="ops"
-                value={user}
-                onChange={(e) => setUser(e.target.value)}
-              />
-            )}
-          </Field>
-          <Field label="SSH public key" error={err?.fields.public_key}>
-            {(a) => (
-              <Textarea
-                {...a}
-                rows={3}
-                placeholder="ssh-ed25519 AAAA… codeplo-operator"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-              />
-            )}
-          </Field>
-        </div>
-      )}
 
       {err && !['validation_failed'].includes(err.code) && (
         <p role="alert" className="text-xs text-red-600">
@@ -250,7 +177,7 @@ function OperatorStep({ onDone, busy }: { onDone: () => void; busy: boolean }) {
         </p>
       )}
       <div className="flex justify-end">
-        <Button type="submit" loading={set.isPending || busy} disabled={!user || (mode === 'create' && !key.trim())}>
+        <Button type="submit" loading={set.isPending || busy} disabled={!user}>
           Continue
         </Button>
       </div>

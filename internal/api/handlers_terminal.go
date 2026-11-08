@@ -179,7 +179,8 @@ func (s *Server) consumeTicket(w http.ResponseWriter, r *http.Request, p *Princi
 	}
 	tk, err := s.Tickets.Consume(r.URL.Query().Get("ticket"), p.User.ID, target, resourceID, r.Header.Get("Origin"))
 	if err != nil {
-		s.wsFail(w, r, "invalid or expired ticket")
+		// Tickets are in-memory: a daemon restart within the 30s window burns every outstanding ticket.
+		s.wsFail(w, r, "invalid or expired ticket — request a new session (tickets do not survive a panel restart)")
 		return terminal.Ticket{}, false
 	}
 	return tk, true
