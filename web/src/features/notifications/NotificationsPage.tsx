@@ -21,9 +21,9 @@ const FIELDS: Record<Kind, { key: string; label: string; secret?: boolean; place
   telegram: [{ key: 'bot_token', label: 'Bot token', secret: true }, { key: 'chat_id', label: 'Chat ID' }],
   discord: [{ key: 'webhook_url', label: 'Webhook URL', secret: true }],
   email: [
-    { key: 'to', label: 'Recipient address', placeholder: 'alerts@example.com' },
-    { key: 'from', label: 'Sender address', placeholder: 'codeplo@example.com' },
-    { key: 'host', label: 'SMTP host', placeholder: 'smtp.example.com' },
+    { key: 'to', label: 'Recipient address', placeholder: 'alerts@your-domain' },
+    { key: 'from', label: 'Sender address', placeholder: 'panel@your-domain' },
+    { key: 'host', label: 'SMTP host', placeholder: 'smtp.your-provider' },
     { key: 'port', label: 'Port', placeholder: '587' },
     { key: 'username', label: 'Username (optional)' },
     { key: 'password', label: 'Password', secret: true },
