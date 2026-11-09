@@ -5189,6 +5189,12 @@ components:
         server_now:
           type: string
           format: date-time
+        docker_ok:
+          type: boolean
+          description: Whether the Docker runtime answers Available()
+        docker_detail:
+          type: string
+          description: ok or the error from the runtime
       additionalProperties: false
       required:
       - hostname

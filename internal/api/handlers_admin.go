@@ -426,11 +426,21 @@ func (s *Server) systemStatus(w http.ResponseWriter, r *http.Request) {
 			active = n
 		}
 	}
+	dockerOK := false
+	dockerDetail := "not configured"
+	if s.Runtime != nil {
+		if err := s.Runtime.Available(r.Context()); err != nil {
+			dockerDetail = err.Error()
+		} else {
+			dockerOK, dockerDetail = true, "ok"
+		}
+	}
 	writeJSON(w, 200, map[string]any{
 		"hostname": h.Hostname, "os": h.OS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(), "ram_total_mb": h.RAMTotalMB,
 		"support_tier": tier, "uptime_s": int(time.Since(s.Started).Seconds()), "metrics": metrics,
 		"operator_configured": opu != nil, "operator_user": opu, "security_score": score, "pending_changes": pending,
 		"active_alerts": active, "server_now": now(),
+		"docker_ok": dockerOK, "docker_detail": dockerDetail,
 	})
 }
 

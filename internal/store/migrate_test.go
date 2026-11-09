@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestMigrateAllToV8(t *testing.T) {
+func TestMigrateAllToV9(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codeplo_t1.db")
 	db, err := Open(path)
@@ -21,8 +21,8 @@ func TestMigrateAllToV8(t *testing.T) {
 	if err := db.QueryRow(`SELECT version_id FROM goose_db_version ORDER BY id DESC LIMIT 1`).Scan(&v); err != nil {
 		t.Fatalf("version query: %v", err)
 	}
-	if v != 8 {
-		t.Fatalf("expected goose_db_version=8, got %d", v)
+	if v != 9 {
+		t.Fatalf("expected goose_db_version=9, got %d", v)
 	}
 	t.Logf("goose_db_version=%d OK", v)
 }
@@ -79,6 +79,20 @@ func TestMigrateSeeds(t *testing.T) {
 	}
 	if enabled != 0 {
 		t.Errorf("git.preview_deploys enabled: want 0, got %d", enabled)
+	}
+
+	// deploy type gates from 0001 (seed) / 0009 (enable on existing)
+	for _, key := range []string{"deploy.static", "deploy.compose"} {
+		var n, en int
+		if err := db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(enabled),-1) FROM feature_flags WHERE key = ?`, key).Scan(&n, &en); err != nil {
+			t.Fatalf("feature_flags %s: %v", key, err)
+		}
+		if n != 1 {
+			t.Errorf("feature_flags %s: want 1 row, got %d", key, n)
+		}
+		if en != 1 {
+			t.Errorf("%s enabled: want 1, got %d", key, en)
+		}
 	}
 
 	// four disabled alert presets from 0006

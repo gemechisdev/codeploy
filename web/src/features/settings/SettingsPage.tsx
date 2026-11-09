@@ -197,7 +197,8 @@ function SystemTab() {
           <CardBody className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <div><p className="text-muted">Host</p><p className="font-semibold text-primary">{s.hostname}</p></div><div><p className="text-muted">OS</p><p className="text-primary">{s.os} {s.arch}</p></div>
             <div><p className="text-muted">Resources</p><p className="text-primary">{s.cpus} CPU · {bytes(s.ram_total_mb * 1024 * 1024)} RAM</p></div><div><p className="text-muted">Uptime</p><p className="text-primary">{duration(s.uptime_s)}</p></div>
-            <div><p className="text-muted">Support tier</p><Badge tone="brand">{s.support_tier}</Badge></div><div><p className="text-muted">Version</p><p className="font-mono text-primary">{ver.data ? `${ver.data.version} (${ver.data.channel})` : '—'}</p></div>
+            <div><p className="text-muted">Support tier</p><Badge tone="brand">{s.support_tier}</Badge></div>
+            <div><p className="text-muted">Docker</p><p className="font-semibold text-primary">{s.docker_ok ? "available" : "unavailable"}</p><p className="text-[11px] text-muted">{s.docker_detail ?? ""}</p></div><div><p className="text-muted">Version</p><p className="font-mono text-primary">{ver.data ? `${ver.data.version} (${ver.data.channel})` : '—'}</p></div>
           </CardBody>)}</QueryBoundary></Card>
       <Card><CardHeader title="Cleanup" description="Removes unused images, stopped containers and build cache. Retained rollback images are kept." actions={can('system:cleanup') && <Button size="sm" variant="secondary" onClick={() => setAsk(true)}>Run cleanup</Button>} /></Card>
       <ConfirmDialog open={ask} onOpenChange={setAsk} title="Run cleanup?" confirmLabel="Run cleanup" loading={cleanup.isPending}

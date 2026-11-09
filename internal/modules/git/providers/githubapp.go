@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -214,12 +215,26 @@ func (a *GitHubApp) Token(ctx context.Context) (string, error) {
 		Token     string `json:"token"`
 		ExpiresAt string `json:"expires_at"`
 	}
-	path := "/applications/" + a.InstallationID + "/access_tokens"
-	if err := a.call(ctx, jwt, "POST", path, map[string]any{}, &out); err != nil {
+	// Correct REST path: POST /app/installations/{id}/access_tokens (not /applications/…).
+	path := "/app/installations/" + a.InstallationID + "/access_tokens"
+	// Optional: CODEPLO_GITHUB_TOKEN_FORMAT=stateless|stateful forces X-GitHub-Stateless-S2S-Token for rollout testing
+	// (https://github.blog/changelog/2026-05-15-github-app-installation-tokens-per-request-override-header).
+	headers := map[string]string{}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODEPLO_GITHUB_TOKEN_FORMAT"))) {
+	case "stateless", "jwt", "enabled":
+		headers["X-GitHub-Stateless-S2S-Token"] = "enabled"
+	case "stateful", "classic", "disabled":
+		headers["X-GitHub-Stateless-S2S-Token"] = "disabled"
+	}
+	if err := a.callHeaders(ctx, jwt, "POST", path, map[string]any{}, headers, &out); err != nil {
 		return "", err
 	}
 	if out.Token == "" {
 		return "", fmt.Errorf("GitHub answered the token request for installation %s without a token", a.InstallationID)
+	}
+	// Accept both classic opaque and new JWT-format installation tokens (ghs_…, often ~520 chars with two dots).
+	if !looksLikeInstallationToken(out.Token) {
+		return "", fmt.Errorf("GitHub returned a token that does not look like an installation access token")
 	}
 	until := a.now().Add(tokenFallback)
 	if exp, err := time.Parse(time.RFC3339, out.ExpiresAt); err == nil {
@@ -465,6 +480,23 @@ func (a *GitHubApp) retain(c *repoCache) *repoCache {
 // call is the whole HTTP surface this type needs. The error text is GitHub's own `message`, which is the sentence
 // an operator can act on; the request body is never echoed, and no response containing a token is logged.
 func (a *GitHubApp) call(ctx context.Context, bearer, method, path string, in any, out any) error {
+	return a.callHeaders(ctx, bearer, method, path, in, nil, out)
+}
+
+// looksLikeInstallationToken accepts classic opaque ghs_ tokens and the longer JWT-format (stateless) tokens.
+// Recommended pattern from GitHub: ghs_[A-Za-z0-9._-]{36,}
+func looksLikeInstallationToken(tok string) bool {
+	if len(tok) < 40 {
+		return false
+	}
+	if !strings.HasPrefix(tok, "ghs_") && !strings.HasPrefix(tok, "ghu_") && !strings.HasPrefix(tok, "gho_") {
+		// Enterprise / unusual prefixes: still accept opaque non-empty tokens from a 2xx body.
+		return len(tok) >= 40 && len(tok) <= 2048
+	}
+	return len(tok) <= 2048
+}
+
+func (a *GitHubApp) callHeaders(ctx context.Context, bearer, method, path string, in any, extra map[string]string, out any) error {
 	var body io.Reader
 	if in != nil {
 		raw, err := json.Marshal(in)
@@ -482,6 +514,11 @@ func (a *GitHubApp) call(ctx context.Context, bearer, method, path string, in an
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range extra {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
 	}
 	resp, err := a.HTTP.Do(req)
 	if err != nil {
@@ -531,9 +568,9 @@ func gitHubMessage(raw []byte) string {
 // hint turns the two statuses an operator can only fix outside this panel into instructions.
 func (a *GitHubApp) hint(status int, path string) string {
 	switch {
-	case status == 401 && strings.HasPrefix(path, "/applications/"):
+	case status == 401 && strings.HasPrefix(path, "/app/installations/"):
 		return fmt.Sprintf(" (a 401 here means the private key does not belong to app id %s)", a.AppID)
-	case status == 404 && strings.HasPrefix(path, "/applications/"):
+	case status == 404 && strings.HasPrefix(path, "/app/installations/"):
 		return fmt.Sprintf(" (a 404 here means installation %s does not exist: has the App been uninstalled, or is that the app id rather than the installation id from /settings/installations/<id>?)", a.InstallationID)
 	case (status == 404 || status == 422) && strings.Contains(path, "/statuses/"):
 		return " (GitHub has no such commit to put a status on: the branch was force-pushed or deleted after the build, or the sha came from a repository the App cannot see)"

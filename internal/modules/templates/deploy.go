@@ -74,6 +74,9 @@ func (t *Template) Plan(in PlanInput) (*Plan, error) {
 		// Match official image non-root UIDs so entrypoints do not need setuid under no-new-privileges.
 		u := "999"
 		cfg.Isolation.User = &u
+		cfg.Healthcheck.StartPeriodS = 20
+		cfg.Healthcheck.IntervalS = 5
+		cfg.Healthcheck.Retries = 18
 	}
 	plan.Cfg = cfg
 	out, err := json.Marshal(cfg)

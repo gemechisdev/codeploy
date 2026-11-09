@@ -128,6 +128,9 @@ func (r *run) prepare(ctx context.Context, _ context.CancelCauseFunc) error {
 	r.red = NewRedactor(secrets)
 	r.logw = newLogWriter(e.db, r.id, r.red, e.settingInt(ctx, "deploy.max_log_lines", defaultMaxLog), e.pub, e.cfg.Now)
 	r.logw.Sys(fmt.Sprintf("deployment %s of %s (%s, trigger %s)", r.id, r.res.Slug, r.dep.Mode, r.dep.Trigger))
+	if err := e.rt.Available(ctx); err != nil {
+		return fail("preflight", "Docker is not available on this host (%v). Install Docker Engine and ensure the codeplo user can use the socket, then redeploy.", err)
+	}
 	if r.vols, err = loadVolumes(ctx, e.db, r.res.ID); err != nil {
 		return err
 	}
@@ -467,7 +470,9 @@ func (r *run) preDeployBackup(ctx context.Context, _ context.CancelCauseFunc) er
 	default:
 		// Not a warning: most resources are application containers with no schedule, and a deployment log that
 		// called that out on every deploy would teach the operator to ignore it.
-		r.logw.Sys("no backup schedule on this resource: no pre-deploy snapshot taken")
+		if r.res.Type == "database" {
+			r.logw.Sys("no backup schedule on this database: no pre-deploy snapshot taken")
+		}
 	}
 	return nil
 }

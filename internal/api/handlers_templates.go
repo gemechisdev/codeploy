@@ -118,10 +118,6 @@ func (s *Server) deployTemplate(w http.ResponseWriter, r *http.Request) {
 		invalid(w, f)
 		return
 	}
-	if t.Kind == templates.KindCompose && !s.flagOn(r.Context(), "deploy.compose") {
-		writeErr(w, 409, "conflict", "This template uses Docker Compose, which is disabled (feature flag deploy.compose)", nil)
-		return
-	}
 	// Every template deploy starts its resource: the catalog exists to have something running, and a stopped
 	// container nobody asked to queue is not what a Deploy button reads as.
 	if !p.Perms["deploy:create"] {

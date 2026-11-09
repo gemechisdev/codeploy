@@ -192,3 +192,29 @@ that already existed. Flags: `--keep-data` (keep data and users so a reinstall r
 (also remove containers, networks and volumes labelled `codeplo.managed=true`), `--revert-hardening` (undo pending
 hardening changes first), `--purge-config` (also remove `/etc/default/codeplod`), `--yes`, `--force`.
 Applied firewall/sshd hardening is not undone. Hosts installed before this command existed can `codeplo update` first.
+
+## GitHub App (private repos without per-resource deploy keys)
+
+Optional. When set, the daemon can clone repositories the App installation covers and verify App webhooks.
+
+```bash
+# Numeric App ID and Installation ID (from github.com/settings/apps and /settings/installations/<id>)
+export CODEPLO_GITHUB_APP_ID=123456
+export CODEPLO_GITHUB_APP_INSTALLATION_ID=12345678
+export CODEPLO_GITHUB_APP_PRIVATE_KEY_FILE=/etc/codeplo/github-app.pem
+# Optional webhook secret (App → Webhook)
+export CODEPLO_GITHUB_APP_WEBHOOK_SECRET=...
+# Optional: force token format while validating GitHub's rollout (stateless JWT vs classic)
+# export CODEPLO_GITHUB_TOKEN_FORMAT=stateless   # or: stateful
+```
+
+Installation tokens are minted via `POST /app/installations/{id}/access_tokens`. Both classic opaque and longer JWT-format (`ghs_…`) tokens are accepted.
+
+## First deploy checklist
+
+1. Install with the one-liner (Caddy is installed automatically if missing).
+2. Complete setup in the browser (owner, TOTP, domain optional, operator).
+3. Install Docker on the host if you will run containers.
+4. **Projects** → create project → open it → create environment if needed → **New resource**.
+5. Prefer **Templates** for Postgres/Redis; use **App** + Git for your code (Dockerfile or auto-detect).
+6. Optional: attach a domain on the resource; Caddy issues certificates when DNS points here.
