@@ -47,7 +47,7 @@ function SourceForm({ r }: { r: Resource }) {
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Branch" error={fe('branch')}>{(a) => <Input {...a} className="font-mono" disabled={ro} value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} />}</Field>
               <Field label="Build path" error={fe('build_path')}>{(a) => <Input {...a} className="font-mono" disabled={ro} value={f.build} onChange={(e) => setF({ ...f, build: e.target.value })} />}</Field>
-              <Field label="Dockerfile" error={fe('dockerfile')}>{(a) => <Input {...a} className="font-mono" disabled={ro} value={f.dockerfile} onChange={(e) => setF({ ...f, dockerfile: e.target.value })} />}</Field>
+              <Field label="Dockerfile" error={fe('dockerfile')} hint="Optional. If missing, the panel auto-detects Node/Python/Go/… or uses Build tab commands.">{(a) => <Input {...a} className="font-mono" disabled={ro} value={f.dockerfile} onChange={(e) => setF({ ...f, dockerfile: e.target.value })} />}</Field>
             </div>
             <Field label="Path filters (optional)" hint="One per line, e.g. src/**. Pushes touching only other paths are ignored.">{(a) => <Textarea {...a} rows={3} disabled={ro} value={f.filters} onChange={(e) => setF({ ...f, filters: e.target.value })} />}</Field>
             {fe('deploy_key_id') && <p role="alert" className="text-[11px] text-red-600">{fe('deploy_key_id')}</p>}

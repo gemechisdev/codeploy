@@ -105,6 +105,81 @@ export function IsolationTab({ resource: r }: { resource: Resource }) {
   );
 }
 
+
+/** Render/Koyeb-style install/build/start overrides. Empty = auto-detect from the repo (or use Dockerfile if present). */
+export function BuildTab({ resource: r }: { resource: Resource }) {
+  const { can } = usePermissions();
+  const { patch, save, fe } = usePatch(r);
+  const c = r.config;
+  const b = (c as ResourceConfig & { build?: { install_command?: string | null; build_command?: string | null; start_command?: string | null; test_command?: string | null; runtime?: string | null } }).build ?? {};
+  const [v, setV] = useState({
+    install: b.install_command ?? '',
+    build: b.build_command ?? '',
+    start: b.start_command ?? '',
+    test: b.test_command ?? '',
+    runtime: b.runtime ?? '',
+  });
+  useEffect(() => {
+    const nb = (r.config as typeof c & { build?: typeof b }).build ?? {};
+    setV({
+      install: nb.install_command ?? '',
+      build: nb.build_command ?? '',
+      start: nb.start_command ?? '',
+      test: nb.test_command ?? '',
+      runtime: nb.runtime ?? '',
+    });
+  }, [r.config]);
+  const ro = !can('resource:write');
+  const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV((x) => ({ ...x, [k]: e.target.value }));
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const build = {
+      install_command: v.install.trim() || null,
+      build_command: v.build.trim() || null,
+      start_command: v.start.trim() || null,
+      test_command: v.test.trim() || null,
+      runtime: v.runtime.trim() || null,
+    };
+    save({ ...c, build } as ResourceConfig);
+  };
+  return (
+    <Card>
+      <CardHeader
+        title="Build & start"
+        description="Leave fields empty to auto-detect from the repo (package.json, requirements.txt, go.mod, …) or to use a Dockerfile when one exists. Same model as Render / Koyeb / Vercel."
+      />
+      <CardBody>
+        <form onSubmit={submit} className="space-y-3" noValidate>
+          <p className="text-[11px] text-muted">
+            Priority: <strong className="text-primary">Dockerfile</strong> if present → else auto-detect stack → apply any overrides below → generate an image.
+          </p>
+          <Field label="Install command" hint="e.g. npm ci · pip install -r requirements.txt · go mod download">
+            {(a) => <Input {...a} className="font-mono" disabled={ro} placeholder="auto" value={v.install} onChange={set('install')} />}
+          </Field>
+          <Field label="Build command" hint="Optional. e.g. npm run build · go build -o app .">
+            {(a) => <Input {...a} className="font-mono" disabled={ro} placeholder="auto / none" value={v.build} onChange={set('build')} />}
+          </Field>
+          <Field label="Start command" hint="Process that listens on the container port. e.g. npm start · uvicorn main:app --host :: --port 8000">
+            {(a) => <Input {...a} className="font-mono" disabled={ro} placeholder="auto" value={v.start} onChange={set('start')} />}
+          </Field>
+          <Field label="Test command (optional)" hint="Stored for CI/operators; not run inside the image by default.">
+            {(a) => <Input {...a} className="font-mono" disabled={ro} placeholder="npm test" value={v.test} onChange={set('test')} />}
+          </Field>
+          <Field label="Runtime base image" hint="e.g. node:22-alpine · python:3.12-slim · golang:1.23-alpine">
+            {(a) => <Input {...a} className="font-mono" disabled={ro} placeholder="auto" value={v.runtime} onChange={set('runtime')} />}
+          </Field>
+          {fe('config.build') && <p role="alert" className="text-xs text-red-600">{fe('config.build')}</p>}
+          {!ro && (
+            <div className="flex justify-end">
+              <Button type="submit" loading={patch.isPending}>Save build settings</Button>
+            </div>
+          )}
+        </form>
+      </CardBody>
+    </Card>
+  );
+}
+
 export function VolumesTab({ resource: r }: { resource: Resource }) {
   const q = useVolumes(r.id); const create = useCreateVolume(r.id); const toast = useToast(); const { can } = usePermissions();
   const [name, setName] = useState(''); const [mount, setMount] = useState('');

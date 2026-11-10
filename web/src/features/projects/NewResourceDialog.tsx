@@ -33,6 +33,10 @@ export function NewResourceDialog({ open, onOpenChange, environmentId, environme
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('main');
   const [dockerfile, setDockerfile] = useState('Dockerfile');
+  const [installCmd, setInstallCmd] = useState('');
+  const [buildCmd, setBuildCmd] = useState('');
+  const [startCmd, setStartCmd] = useState('');
+  const [showBuild, setShowBuild] = useState(false);
   const [port, setPort] = useState('3000');
   const [memory, setMemory] = useState('256');
   const [domain, setDomain] = useState('');
@@ -61,7 +65,7 @@ export function NewResourceDialog({ open, onOpenChange, environmentId, environme
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const imageMode = type === 'compose' ? 'build' : mode;
-    const body: Req = {
+    const body = {
       environment_id: environmentId,
       type,
       name,
@@ -78,6 +82,15 @@ export function NewResourceDialog({ open, onOpenChange, environmentId, environme
         isolation: { cap_add: [], user: null, trusted: false },
         restart: 'unless-stopped',
         retain_images: 5,
+        ...(mode === 'build' || type === 'compose' || type === 'static'
+          ? {
+              build: {
+                install_command: installCmd.trim() || null,
+                build_command: buildCmd.trim() || null,
+                start_command: startCmd.trim() || null,
+              },
+            }
+          : {}),
       },
       source:
         imageMode === 'build'
@@ -94,7 +107,7 @@ export function NewResourceDialog({ open, onOpenChange, environmentId, environme
       domain: domain.trim() || null,
       deploy_now: deployNow && canDeploy,
     };
-    create.mutate(body, {
+    create.mutate(body as Req, {
       onSuccess: (r) => {
         toast.success(r.deployment ? `${name} created. First deployment started.` : `${name} created.`);
         onOpenChange(false);
@@ -192,6 +205,19 @@ export function NewResourceDialog({ open, onOpenChange, environmentId, environme
             </div>
           </div>
         )}
+
+        
+            <button type="button" className="text-[11px] font-semibold text-brand-primary" onClick={() => setShowBuild((x) => !x)}>
+              {showBuild ? "Hide" : "Show"} install / build / start overrides
+            </button>
+            {showBuild && (
+              <div className="space-y-2 rounded border border-subtle bg-surface p-2">
+                <p className="text-[11px] text-muted">Empty = auto-detect (package.json, requirements.txt, go.mod, …) or use Dockerfile if present.</p>
+                <Field label="Install command">{(a) => <Input {...a} className="font-mono" placeholder="npm ci · pip install -r requirements.txt" value={installCmd} onChange={(e) => setInstallCmd(e.target.value)} />}</Field>
+                <Field label="Build command">{(a) => <Input {...a} className="font-mono" placeholder="npm run build" value={buildCmd} onChange={(e) => setBuildCmd(e.target.value)} />}</Field>
+                <Field label="Start command">{(a) => <Input {...a} className="font-mono" placeholder="npm start · uvicorn main:app --host all-interfaces --port 8000" value={startCmd} onChange={(e) => setStartCmd(e.target.value)} />}</Field>
+              </div>
+            )}
 
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Container port" error={f['config.port']} hint="Process listen port">

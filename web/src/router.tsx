@@ -9,7 +9,7 @@ import { AppShell } from '@/features/shell/AppShell';
 
 export interface RouterContext { qc: QueryClient }
 
-export const RESOURCE_TABS = ['deployments', 'overview', 'source', 'env', 'domains', 'volumes', 'limits', 'isolation', 'logs', 'shell'] as const;
+export const RESOURCE_TABS = ['deployments', 'overview', 'source', 'build', 'env', 'domains', 'volumes', 'limits', 'isolation', 'logs', 'shell'] as const;
 export type ResourceTab = (typeof RESOURCE_TABS)[number];
 export const SETTINGS_TABS = ['users', 'roles', 'tokens', 'git', 'modules', 'audit', 'system'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];

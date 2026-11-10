@@ -67,3 +67,11 @@ Lightweight Coolify-style panel for small VPS / personal use.
 - Database template health + UID defaults
 - System status Docker probe + UI
 - README GitHub App + first-deploy checklist
+
+
+## Build settings (install/build/start) — 2026-11-11
+
+- Auto-detect without Dockerfile: Node/Next/Vite, Python, Go, Rust, PHP, Ruby, static
+- Overridable `config.build`: install_command, build_command, start_command, test_command, runtime
+- Resource tab **Build** + New resource advanced overrides
+- Dockerfile still wins when present

@@ -393,13 +393,30 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 	if err != nil {
 		return "", fail("build", "Build context rejected: %v", err)
 	}
-	// Prefer operator Dockerfile; otherwise auto-detect Node/Python/Go/Rust/static/… (Coolify-style packs).
+	// Dockerfile if present; else auto-detect stack and optional build.* command overrides (Render/Koyeb-style).
 	preferred := deref(r.res.Cfg.Image.Dockerfile, deref(&src.Dockerfile, "Dockerfile"))
-	pack, err := builders.EnsureDockerfile(ctxDir, preferred, r.logFn())
+	ov := builders.BuildOverrides{Dockerfile: preferred}
+	if b := r.res.Cfg.Build; b != nil {
+		ov.InstallCommand = deref(b.InstallCommand, "")
+		ov.BuildCommand = deref(b.BuildCommand, "")
+		ov.StartCommand = deref(b.StartCommand, "")
+		ov.TestCommand = deref(b.TestCommand, "")
+		ov.Runtime = deref(b.Runtime, "")
+		// Empty dockerfile in config + non-empty start/install means prefer command plan over a stale "Dockerfile" name.
+		if preferred == "Dockerfile" && (ov.InstallCommand != "" || ov.StartCommand != "" || ov.BuildCommand != "") {
+			if _, err := os.Stat(filepath.Join(ctxDir, "Dockerfile")); err != nil {
+				ov.Dockerfile = ""
+			}
+		}
+	}
+	pack, err := builders.EnsureDockerfileWithOverrides(ctxDir, ov, r.logFn())
 	if err != nil {
 		return "", fail("build", "%v", err)
 	}
 	r.logw.Sys(pack.Note)
+	if pack.Port > 0 && r.res.Cfg.Port == 3000 {
+		// Keep operator-chosen ports; only hint when still on default — do not mutate stored config mid-deploy.
+	}
 	dfRel := path.Join(ctxRel, pack.Dockerfile)
 	df, err := builders.ConfinePath(dest, dfRel)
 	if err != nil {

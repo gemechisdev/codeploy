@@ -47,6 +47,19 @@ type ResourceConfig struct {
 	Rollout string `json:"rollout,omitempty"`
 	// PublishedPorts is an explicit, owner-only, audit-flagged opt-in. Ports bind to 127.0.0.1 only.
 	PublishedPorts []int `json:"published_ports,omitempty"`
+
+	// Build is the Render/Koyeb/Vercel-style command plan. Empty fields mean auto-detect from the repo
+	// (package.json, requirements.txt, go.mod, …) or use an existing Dockerfile.
+	Build *BuildSettings `json:"build,omitempty"`
+}
+
+// BuildSettings are optional overrides for host builds without a hand-written Dockerfile.
+type BuildSettings struct {
+	InstallCommand *string `json:"install_command,omitempty"`
+	BuildCommand   *string `json:"build_command,omitempty"`
+	StartCommand   *string `json:"start_command,omitempty"`
+	TestCommand    *string `json:"test_command,omitempty"`
+	Runtime        *string `json:"runtime,omitempty"` // e.g. node:22-alpine, python:3.12-slim
 }
 
 // DefaultConfig is what a new resource gets for every key the request leaves out.

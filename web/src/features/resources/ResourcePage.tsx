@@ -18,12 +18,12 @@ import { RESOURCE_TABS, type ResourceTab } from '@/router';
 import { DeploymentsTab } from './tabs/DeploymentsTab';
 import { DomainsTab } from './tabs/DomainsTab';
 import { EnvTab } from './tabs/EnvTab';
-import { LimitsTab, IsolationTab, OverviewTab, VolumesTab } from './tabs/ConfigTabs';
+import { LimitsTab, IsolationTab, OverviewTab, VolumesTab, BuildTab } from './tabs/ConfigTabs';
 import { LogsTab } from './tabs/LogsTab';
 import { ShellTab } from './tabs/ShellTab';
 import { SourceTab } from './tabs/SourceTab';
 
-const LABEL: Record<ResourceTab, string> = { deployments: 'Deployments', overview: 'Overview', source: 'Source & CI', env: 'Environment', domains: 'Domains', volumes: 'Volumes', limits: 'Limits', isolation: 'Isolation', logs: 'Logs', shell: 'Shell' };
+const LABEL: Record<ResourceTab, string> = { deployments: 'Deployments', overview: 'Overview', source: 'Source & CI', build: 'Build', env: 'Environment', domains: 'Domains', volumes: 'Volumes', limits: 'Limits', isolation: 'Isolation', logs: 'Logs', shell: 'Shell' };
 
 export function ResourcePage() {
   const { resourceId } = useParams({ from: '/_app/resources/$resourceId' });
@@ -63,6 +63,7 @@ export function ResourcePage() {
               <TabsContent value="deployments"><DeploymentsTab resource={r} /></TabsContent>
               <TabsContent value="overview"><OverviewTab resource={r} /></TabsContent>
               <TabsContent value="source"><SourceTab resource={r} /></TabsContent>
+              <TabsContent value="build"><BuildTab resource={r} /></TabsContent>
               <TabsContent value="env"><EnvTab resource={r} /></TabsContent>
               <TabsContent value="domains"><DomainsTab resource={r} /></TabsContent>
               <TabsContent value="volumes"><VolumesTab resource={r} /></TabsContent>
