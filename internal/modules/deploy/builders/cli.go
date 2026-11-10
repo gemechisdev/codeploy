@@ -49,9 +49,28 @@ func (c *CLI) tmp(prefix string) (string, error) {
 	return os.MkdirTemp(c.TmpDir, prefix) // MkdirTemp creates the directory 0700
 }
 
+// hasBuildx reports whether `docker buildx version` works. Cached: install state does not change mid-process.
+var (
+	buildxOnce sync.Once
+	buildxOK   bool
+)
+
+func dockerHasBuildx(dockerBin string) bool {
+	buildxOnce.Do(func() {
+		cmd := exec.Command(dockerBin, "buildx", "version")
+		buildxOK = cmd.Run() == nil
+	})
+	return buildxOK
+}
+
 // baseEnv is deliberately small: nothing from the daemon's environment (master key path, tokens) reaches a build.
+// DOCKER_BUILDKIT is only enabled when buildx is installed; otherwise Docker errors with "buildx component is missing".
 func (c *CLI) baseEnv(home string) []string {
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LANG=C.UTF-8", "DOCKER_BUILDKIT=1", "GIT_TERMINAL_PROMPT=0"}
+	buildkit := "0"
+	if dockerHasBuildx(c.docker()) {
+		buildkit = "1"
+	}
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LANG=C.UTF-8", "DOCKER_BUILDKIT=" + buildkit, "GIT_TERMINAL_PROMPT=0"}
 	if c.Socket != "" {
 		env = append(env, "DOCKER_HOST=unix://"+c.Socket)
 	}
@@ -237,8 +256,12 @@ func lastLine(s string) string {
 }
 
 // buildArgs assembles the `docker build` argument vector. Secrets are mounts (--secret), never --build-arg.
-func buildArgs(req BuildRequest, secretFiles map[string]string) []string {
-	args := []string{"build", "--progress=plain", "--pull=false", "-t", req.Tag, "-f", req.Dockerfile}
+// With the legacy builder (no buildx), --progress=plain and --secret are omitted.
+func buildArgs(req BuildRequest, secretFiles map[string]string, useBuildKit bool) []string {
+	args := []string{"build", "--pull=false", "-t", req.Tag, "-f", req.Dockerfile}
+	if useBuildKit {
+		args = append(args, "--progress=plain")
+	}
 	if req.MemoryBytes > 0 {
 		m := strconv.FormatInt(req.MemoryBytes, 10)
 		args = append(args, "--memory", m, "--memory-swap", m)
@@ -251,13 +274,15 @@ func buildArgs(req BuildRequest, secretFiles map[string]string) []string {
 	for _, k := range akeys {
 		args = append(args, "--build-arg", k+"="+req.Args[k])
 	}
-	ids := make([]string, 0, len(secretFiles))
-	for id := range secretFiles {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		args = append(args, "--secret", "id="+id+",src="+secretFiles[id])
+	if useBuildKit {
+		ids := make([]string, 0, len(secretFiles))
+		for id := range secretFiles {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			args = append(args, "--secret", "id="+id+",src="+secretFiles[id])
+		}
 	}
 	return append(args, "--", req.ContextDir)
 }
@@ -288,7 +313,7 @@ func (c *CLI) Build(ctx context.Context, req BuildRequest, log LogFunc) error {
 		files[id] = p
 	}
 	env := append(c.baseEnv(cfg), "DOCKER_CONFIG="+cfg)
-	out, err := run(ctx, req.ContextDir, env, log, c.docker(), buildArgs(req, files)...)
+	out, err := run(ctx, req.ContextDir, env, log, c.docker(), buildArgs(req, files, dockerHasBuildx(c.docker()))...)
 	return classify(out, err)
 }
 

@@ -273,8 +273,7 @@ func renderDockerfile(p BuildPlan) (string, error) {
 	case "dockerfile":
 		return "", fmt.Errorf("internal: dockerfile pack should not render")
 	case "static":
-		return `# syntax=docker/dockerfile:1
-FROM nginx:1.27-alpine
+		return `FROM nginx:1.27-alpine
 COPY . /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx","-g","daemon off;"]
@@ -285,8 +284,7 @@ CMD ["nginx","-g","daemon off;"]
 			outDir = "dist"
 		}
 		p.Note = ""
-		return fmt.Sprintf(`# syntax=docker/dockerfile:1
-FROM %s AS build
+		return fmt.Sprintf(`FROM %s AS build
 WORKDIR /app
 COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* bun.lockb* bun.lock* ./
 RUN %s
@@ -298,8 +296,7 @@ EXPOSE 80
 CMD ["nginx","-g","daemon off;"]
 `, p.Runtime, p.InstallCommand, nullCmd(p.BuildCommand, "npm run build"), outDir), nil
 	case "go":
-		return fmt.Sprintf(`# syntax=docker/dockerfile:1
-FROM %s AS build
+		return fmt.Sprintf(`FROM %s AS build
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
@@ -314,8 +311,7 @@ EXPOSE %d
 CMD ["/app/app"]
 `, p.Runtime, nullCmd(p.BuildCommand, "CGO_ENABLED=0 go build -o /out/app ."), portOr(p.Port, 8080), portOr(p.Port, 8080)), nil
 	case "rust":
-		return fmt.Sprintf(`# syntax=docker/dockerfile:1
-FROM %s AS build
+		return fmt.Sprintf(`FROM %s AS build
 RUN apk add --no-cache musl-dev
 WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./
@@ -336,8 +332,7 @@ CMD ["sh","-c","exec /app/bin/$(ls /app/bin | head -1)"]
 		if strings.TrimSpace(p.BuildCommand) != "" {
 			buildLine = "RUN " + p.BuildCommand + "\n"
 		}
-		return fmt.Sprintf(`# syntax=docker/dockerfile:1
-FROM %s
+		return fmt.Sprintf(`FROM %s
 WORKDIR /app
 ENV PORT=%d HOST=0.0.0.0
 COPY . .

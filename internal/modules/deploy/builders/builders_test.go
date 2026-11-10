@@ -52,7 +52,7 @@ func TestValidateGitURL(t *testing.T) {
 
 func TestBuildArgsUseSecretMountsNeverBuildArgs(t *testing.T) {
 	args := buildArgs(BuildRequest{ContextDir: "/ctx", Dockerfile: "/ctx/Dockerfile", Tag: "codeplo/x:1", MemoryBytes: 1 << 30},
-		map[string]string{"NPM_TOKEN": "/tmp/s/NPM_TOKEN"})
+		map[string]string{"NPM_TOKEN": "/tmp/s/NPM_TOKEN"}, true)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--secret id=NPM_TOKEN,src=/tmp/s/NPM_TOKEN") {
 		t.Fatalf("secret mount missing: %s", joined)
@@ -62,6 +62,16 @@ func TestBuildArgsUseSecretMountsNeverBuildArgs(t *testing.T) {
 	}
 	if !strings.Contains(joined, "--memory 1073741824") {
 		t.Fatalf("build memory limit missing: %s", joined)
+	}
+}
+
+
+func TestBuildArgsLegacyOmitsSecretAndProgress(t *testing.T) {
+	args := buildArgs(BuildRequest{ContextDir: "/ctx", Dockerfile: "/ctx/Dockerfile", Tag: "codeplo/x:1"},
+		map[string]string{"NPM_TOKEN": "/tmp/s/NPM_TOKEN"}, false)
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "--secret") || strings.Contains(joined, "--progress") {
+		t.Fatalf("legacy builder must omit buildkit flags: %s", joined)
 	}
 }
 
