@@ -2201,8 +2201,6 @@ export interface components {
             active_alerts?: number;
             /** Format: date-time */
             server_now: string;
-            docker_ok?: boolean;
-            docker_detail?: string;
         };
         MetricsSeries: {
             range: string;

@@ -88,7 +88,7 @@ export function registerPlatform() {
     const status: S['SystemStatus'] = {
       ...HOST, ram_total_mb: HOST.ram_total_mb, support_tier: tier(HOST.ram_total_mb), uptime_s: Math.floor((Date.now() - db.startedAt) / 1000), metrics: db.metrics,
       operator_configured: !!db.operator, operator_user: db.operator, security_score: computeScore(db.checks), pending_changes: db.changes.filter((x) => x.state === 'pending_confirm').length,
-      active_alerts: db.rules.filter((r) => r.enabled && r.last_triggered_at && Date.now() - Date.parse(r.last_triggered_at) < 6 * 3_600_000).length, server_now: new Date().toISOString(), docker_ok: true, docker_detail: 'ok',
+      active_alerts: db.rules.filter((r) => r.enabled && r.last_triggered_at && Date.now() - Date.parse(r.last_triggered_at) < 6 * 3_600_000).length, server_now: new Date().toISOString(),
     };
     return ok(status);
   });
