@@ -301,7 +301,7 @@ func TestSSEEventsCarryIDAndServerNow(t *testing.T) {
 	}
 
 	// Fire one event (and its audit row) before any stream is open.
-	if w, b := c.do("PATCH", "/feature-flags", map[string]any{"flags": map[string]any{"deploy.static": true}}, map[string]string{"X-CSRF-Token": c.csrf}); w.Code != 200 {
+	if w, b := c.do("PATCH", "/feature-flags", map[string]any{"flags": map[string]any{"git.preview_deploys": true}}, map[string]string{"X-CSRF-Token": c.csrf}); w.Code != 200 {
 		t.Fatalf("flag flip to fire an event: %d %v", w.Code, b)
 	}
 
@@ -346,7 +346,7 @@ func TestSSEEventsCarryIDAndServerNow(t *testing.T) {
 	}
 
 	// Live: a fresh connection (no last_event_id) must receive an event fired while it is open.
-	out2 := stream(Prefix+"/events", "deploy.compose", true)
+	out2 := stream(Prefix+"/events", "extensions.outbound", true)
 	if !strings.Contains(out2, "event: flag.changed") {
 		t.Fatalf("live connection must receive flag.changed, got:\n%s", out2)
 	}
