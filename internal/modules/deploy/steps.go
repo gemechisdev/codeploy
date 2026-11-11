@@ -414,8 +414,11 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 		return "", fail("build", "%v", err)
 	}
 	r.logw.Sys(pack.Note)
-	if pack.Port > 0 && r.res.Cfg.Port == 3000 {
-		// Keep operator-chosen ports; only hint when still on default — do not mutate stored config mid-deploy.
+	if pack.Port > 0 {
+		r.listenPort = pack.Port
+		if r.res.Cfg.Port != pack.Port {
+			r.logw.Sys(fmt.Sprintf("auto-detect listens on %d (resource port is %d); health will probe %d for this deployment", pack.Port, r.res.Cfg.Port, pack.Port))
+		}
 	}
 	dfRel := path.Join(ctxRel, pack.Dockerfile)
 	df, err := builders.ConfinePath(dest, dfRel)
@@ -581,10 +584,7 @@ func (r *run) start(ctx context.Context, _ context.CancelCauseFunc) error {
 		if err != nil {
 			return err
 		}
-		port := r.res.Cfg.Port
-		if port <= 0 {
-			port = 80
-		}
+		port := r.effectivePort()
 		r.upstream = st.IP + ":" + strconv.Itoa(port)
 		r.logw.Sys("compose service at " + r.upstream)
 		_, err = e.db.ExecContext(ctx, `UPDATE deployments SET upstream=?, container_id=? WHERE id=?`, r.upstream, r.newCID, r.id)
@@ -632,7 +632,7 @@ func (r *run) start(ctx context.Context, _ context.CancelCauseFunc) error {
 	if st.IP == "" {
 		return fail("start", "The container started but has no address on the environment network (it may have exited immediately).")
 	}
-	r.upstream = st.IP + ":" + strconv.Itoa(r.res.Cfg.Port)
+	r.upstream = st.IP + ":" + strconv.Itoa(r.effectivePort())
 	r.logw.Sys("container " + shortID(id) + " started at " + r.upstream)
 	_, err = e.db.ExecContext(ctx, `UPDATE deployments SET upstream=? WHERE id=?`, r.upstream, r.id)
 	return err
@@ -773,4 +773,16 @@ func (e *Engine) syncEdge(ctx context.Context) {
 		return
 	}
 	e.pub("edge.changed", map[string]any{})
+}
+
+
+// effectivePort is the port the process in the new container actually listens on for this deployment.
+func (r *run) effectivePort() int {
+	if r.listenPort > 0 {
+		return r.listenPort
+	}
+	if r.res.Cfg.Port > 0 {
+		return r.res.Cfg.Port
+	}
+	return 80
 }

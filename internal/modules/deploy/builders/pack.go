@@ -189,7 +189,7 @@ func detectPlan(dir string) BuildPlan {
 				build = "npm run build"
 			}
 			return BuildPlan{Pack: "node-static", InstallCommand: install, BuildCommand: build,
-				StartCommand: "nginx -g 'daemon off;'", Runtime: "node:22-alpine", Port: 80,
+				StartCommand: "nginx -g 'daemon off;'", Runtime: "node:22-alpine", Port: 8080,
 				Note: outDir}
 		}
 		return BuildPlan{Pack: "node", InstallCommand: install, BuildCommand: build, StartCommand: start,
@@ -253,7 +253,7 @@ func detectPlan(dir string) BuildPlan {
 	// Plain static
 	if exists(dir, "index.html") {
 		return BuildPlan{Pack: "static", InstallCommand: "true", StartCommand: "nginx -g 'daemon off;'",
-			Runtime: "nginx:1.27-alpine", Port: 80}
+			Runtime: "nginxinc/nginx-unprivileged:1.27-alpine", Port: 8080}
 	}
 
 	return BuildPlan{Pack: "unknown"}
@@ -273,10 +273,11 @@ func renderDockerfile(p BuildPlan) (string, error) {
 	case "dockerfile":
 		return "", fmt.Errorf("internal: dockerfile pack should not render")
 	case "static":
-		return `FROM nginx:1.27-alpine
-COPY . /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx","-g","daemon off;"]
+		// nginx:alpine workers setuid to the nginx user — fails under no-new-privileges.
+		// nginx-unprivileged runs entirely as uid 101 and listens on 8080.
+		return `FROM nginxinc/nginx-unprivileged:1.27-alpine
+COPY --chown=101:101 . /usr/share/nginx/html
+EXPOSE 8080
 `, nil
 	case "node-static":
 		outDir := p.Note
@@ -290,10 +291,9 @@ COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* bun.lockb* bun.l
 RUN %s
 COPY . .
 RUN %s
-FROM nginx:1.27-alpine
-COPY --from=build /app/%s /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx","-g","daemon off;"]
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+COPY --from=build --chown=101:101 /app/%s /usr/share/nginx/html
+EXPOSE 8080
 `, p.Runtime, p.InstallCommand, nullCmd(p.BuildCommand, "npm run build"), outDir), nil
 	case "go":
 		return fmt.Sprintf(`FROM %s AS build

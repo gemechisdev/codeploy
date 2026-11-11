@@ -379,6 +379,8 @@ type run struct {
 	buildMem int64
 	// composeDone means acquire already brought the stack up with docker compose; start() only resolves upstream.
 	composeDone bool
+	// listenPort overrides Cfg.Port for this deployment when auto-detect picked a different listen port (e.g. nginx 8080).
+	listenPort int
 }
 
 // Run executes one deployment end to end. It returns nothing: the outcome is the deployment's row.
