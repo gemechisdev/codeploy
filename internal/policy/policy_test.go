@@ -55,6 +55,19 @@ func TestDefaultsAreApplied(t *testing.T) {
 	}
 }
 
+
+func TestAllowPrivilegeDropOmitsNoNewPrivileges(t *testing.T) {
+	c := base()
+	o := opts()
+	o.AllowPrivilegeDrop = true
+	a := Enforce(c, o).Approved.Container()
+	for _, s := range a.SecurityOpt {
+		if s == "no-new-privileges:true" {
+			t.Fatalf("AllowPrivilegeDrop must omit no-new-privileges: %v", a.SecurityOpt)
+		}
+	}
+}
+
 func TestExplicitLimitsKept(t *testing.T) {
 	c := base()
 	c.MemoryBytes, c.NanoCPUs, c.PidsLimit = 64<<20, 2e9, 99

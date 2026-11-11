@@ -84,6 +84,8 @@ func specForConfig(res Resource, vols []Volume, volumesRoot string) policy.Conta
 	}
 	if cfg.Isolation.User != nil && strings.TrimSpace(*cfg.Isolation.User) != "" {
 		c.User = strings.TrimSpace(*cfg.Isolation.User)
+	} else if u := defaultUserForImage(c.Image); u != "" {
+		c.User = u
 	} else if res.Type == "database" {
 		c.User = "999"
 	}
@@ -97,10 +99,16 @@ func specForConfig(res Resource, vols []Volume, volumesRoot string) policy.Conta
 }
 
 func optionsFor(res Resource, c Config) policy.Options {
+	ref := res.Cfg.Image.Ref
+	tag := ""
+	if ref != nil {
+		tag = *ref
+	}
 	return policy.Options{
 		ResourceID: res.Slug, VolumesRoot: c.VolumesRoot, DockerDataDir: c.DockerDataDir,
 		Trusted: res.Cfg.Isolation.Trusted, AllowCaps: res.Cfg.Isolation.CapAdd, AllowPublish: len(res.Cfg.PublishedPorts) > 0,
 		AppArmor: c.AppArmor,
+		AllowPrivilegeDrop: res.Type == "database" || res.Type == "static" || imageNeedsPrivilegeDrop(tag, ref),
 	}
 }
 

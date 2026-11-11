@@ -45,6 +45,40 @@ func (r *run) policyOptions() policy.Options {
 		ResourceID: r.res.Slug, VolumesRoot: r.e.cfg.VolumesRoot, DockerDataDir: r.e.cfg.DockerDataDir,
 		Trusted: cfg.Isolation.Trusted, AllowCaps: cfg.Isolation.CapAdd, AllowPublish: len(cfg.PublishedPorts) > 0,
 		AppArmor: r.e.cfg.AppArmor,
+		// Official Redis/Postgres/MySQL/nginx entrypoints drop root→app user via setpriv/gosu; that needs
+		// privilege transition and fails under no-new-privileges (connection refused in health).
+		AllowPrivilegeDrop: r.res.Type == "database" || r.res.Type == "static" || imageNeedsPrivilegeDrop(r.tag, cfg.Image.Ref),
+	}
+}
+
+// imageNeedsPrivilegeDrop is true for well-known images whose entrypoints setuid/setpriv under root.
+func imageNeedsPrivilegeDrop(tag string, ref *string) bool {
+	s := strings.ToLower(tag)
+	if ref != nil {
+		s += " " + strings.ToLower(*ref)
+	}
+	for _, k := range []string{"redis", "postgres", "mysql", "mariadb", "mongo", "nginx", "bitnami/"} {
+		if strings.Contains(s, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultUserForImage returns a non-root uid string for official images, or "" to leave the image default.
+func defaultUserForImage(ref string) string {
+	s := strings.ToLower(ref)
+	switch {
+	case strings.Contains(s, "postgres") && strings.Contains(s, "alpine"):
+		return "70" // postgres:*-alpine
+	case strings.Contains(s, "postgres"):
+		return "999"
+	case strings.Contains(s, "redis") || strings.Contains(s, "mysql") || strings.Contains(s, "mariadb") || strings.Contains(s, "mongo"):
+		return "999"
+	case strings.Contains(s, "nginx-unprivileged"):
+		return "101"
+	default:
+		return ""
 	}
 }
 
@@ -74,10 +108,11 @@ func (r *run) specFor(role string) policy.Container {
 	}
 	if cfg.Isolation.User != nil && strings.TrimSpace(*cfg.Isolation.User) != "" {
 		c.User = strings.TrimSpace(*cfg.Isolation.User)
+	} else if u := defaultUserForImage(c.Image); u != "" {
+		// Prefer starting as the image's runtime user so entrypoints do not need setuid under nnp.
+		// Databases also get AllowPrivilegeDrop as a backstop when the heuristic uid is wrong.
+		c.User = u
 	} else if r.res.Type == "database" {
-		// Official redis/postgres/mysql images drop root→999 via setpriv/gosu. Our policy always sets
-		// no-new-privileges:true, so that drop fails (setresuid EPERM) and the process never listens.
-		// Starting as 999 skips the drop; volume dirs are 0777 so the data path stays writable.
 		c.User = "999"
 	}
 	for _, v := range r.vols {
@@ -413,7 +448,6 @@ func (r *run) buildFromSource(ctx context.Context, repo string) (string, error) 
 	if err != nil {
 		return "", fail("build", "%v", err)
 	}
-	r.logw.Sys(pack.Note)
 	if pack.Port > 0 {
 		r.listenPort = pack.Port
 		if r.res.Cfg.Port != pack.Port {
@@ -629,8 +663,30 @@ func (r *run) start(ctx context.Context, _ context.CancelCauseFunc) error {
 			return err
 		}
 	}
-	if st.IP == "" {
+	if st.IP == "" || !st.Running {
+		r.tailLogs()
+		if !st.Running {
+			return fail("start", "The container exited immediately after start: %s. Common causes: entrypoint privilege drop under no-new-privileges, wrong PORT, or a crash in the start command.", r.exitReason(st))
+		}
 		return fail("start", "The container started but has no address on the environment network (it may have exited immediately).")
+	}
+	// Brief settle: catch crash-loops before health burns retries.
+	for i := 0; i < 6; i++ {
+		if err := e.cfg.Sleep(ctx, 500*time.Millisecond); err != nil {
+			return err
+		}
+		st2, err := e.rt.InspectContainer(ctx, id, r.network)
+		if err != nil {
+			return err
+		}
+		if !st2.Running {
+			r.tailLogs()
+			return fail("start", "The container crashed shortly after start: %s", r.exitReason(st2))
+		}
+		if st2.IP != "" {
+			st = st2
+			break
+		}
 	}
 	r.upstream = st.IP + ":" + strconv.Itoa(r.effectivePort())
 	r.logw.Sys("container " + shortID(id) + " started at " + r.upstream)

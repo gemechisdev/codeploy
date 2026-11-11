@@ -76,7 +76,7 @@ export function NewResourceDialog({ open, onOpenChange, environmentId, environme
           dockerfile: imageMode === 'build' ? dockerfile : null,
           context: imageMode === 'build' ? '.' : null,
         },
-        port: Number(port) || (type === 'static' ? 80 : 3000),
+        port: Number(port) || (type === 'static' ? 8080 : 3000),
         healthcheck: { path: '/', interval_s: 10, retries: 12, start_period_s: 15, timeout_s: 3 },
         limits: { memory_mb: Number(memory) || 256, cpus: 0.5, pids_limit: 512 },
         isolation: { cap_add: [], user: null, trusted: false },

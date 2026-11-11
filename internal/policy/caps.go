@@ -52,7 +52,7 @@ func approveCaps(add, allow []string) ([]string, []string) {
 // approveSecurityOpt validates --security-opt values. Accepted: no-new-privileges (true), apparmor=docker-default.
 // Rejected: any "unconfined", label=disable, seccomp=<anything> (Docker's default profile only), no-new-privileges=false.
 // The returned list always carries no-new-privileges:true, plus apparmor=docker-default when the host has it.
-func approveSecurityOpt(in []string, apparmor bool) ([]string, []string) {
+func approveSecurityOpt(in []string, apparmor, allowPrivilegeDrop bool) ([]string, []string) {
 	var bad []string
 	for _, raw := range in {
 		o := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(raw), " ", ""))
@@ -67,7 +67,7 @@ func approveSecurityOpt(in []string, apparmor bool) ([]string, []string) {
 		case strings.HasPrefix(o, "systempaths"):
 			bad = append(bad, "security_opt "+raw+" is rejected: masked/read-only system paths cannot be changed")
 		case strings.HasPrefix(o, "no-new-privileges"):
-			if strings.HasSuffix(o, "=false") || strings.HasSuffix(o, ":false") {
+			if (strings.HasSuffix(o, "=false") || strings.HasSuffix(o, ":false")) && !allowPrivilegeDrop {
 				bad = append(bad, "no-new-privileges cannot be disabled")
 			}
 		case o == "apparmor=docker-default" || o == "apparmor:docker-default":
@@ -77,7 +77,10 @@ func approveSecurityOpt(in []string, apparmor bool) ([]string, []string) {
 			bad = append(bad, "security_opt "+raw+" is not supported")
 		}
 	}
-	out := []string{"no-new-privileges:true"}
+	var out []string
+	if !allowPrivilegeDrop {
+		out = append(out, "no-new-privileges:true")
+	}
 	if apparmor {
 		out = append(out, "apparmor=docker-default")
 	}

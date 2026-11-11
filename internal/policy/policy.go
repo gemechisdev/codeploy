@@ -96,6 +96,9 @@ type Options struct {
 	ExtraBinds []string
 	// AppArmor adds apparmor=docker-default where the host has AppArmor.
 	AppArmor bool
+	// AllowPrivilegeDrop omits no-new-privileges so official entrypoints (gosu/setpriv in Redis/Postgres/MySQL/nginx)
+	// can drop root to their runtime user. Used for database templates and known images that cannot start under nnp.
+	AllowPrivilegeDrop bool
 	// EvalSymlinks resolves a path for the confinement check; nil uses the filesystem, tests inject a map.
 	EvalSymlinks func(string) (string, error)
 }
@@ -187,10 +190,14 @@ func Enforce(c Container, o Options) Result {
 		res.Flags = append(res.Flags, "cap_add:"+strings.Join(caps, ","))
 	}
 
-	// security options: seccomp/apparmor unconfined rejected, no-new-privileges cannot be turned off.
-	sec, secBad := approveSecurityOpt(c.SecurityOpt, o.AppArmor)
+	// security options: seccomp/apparmor unconfined rejected; no-new-privileges is the default unless AllowPrivilegeDrop.
+	sec, secBad := approveSecurityOpt(c.SecurityOpt, o.AppArmor, o.AllowPrivilegeDrop)
 	for _, m := range secBad {
 		bad(CtlSeccomp, m)
+	}
+	if o.AllowPrivilegeDrop {
+		warn(CtlNoNewPrivs, "no-new-privileges disabled for this workload so the image entrypoint may drop privileges (database / known image)")
+		res.Flags = append(res.Flags, "privilege_drop")
 	}
 
 	// user: the image's USER by default; root is a warning only.

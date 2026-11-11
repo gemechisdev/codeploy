@@ -75,3 +75,10 @@ Lightweight Coolify-style panel for small VPS / personal use.
 - Overridable `config.build`: install_command, build_command, start_command, test_command, runtime
 - Resource tab **Build** + New resource advanced overrides
 - Dockerfile still wins when present
+
+## Runtime hardening (privilege / health) — 2026-11-11
+- AllowPrivilegeDrop for database + static + known images (redis/postgres/mysql/nginx) so setpriv/gosu/nginx workers work
+- Image-aware default UIDs (postgres alpine 70, redis/mysql 999)
+- start() settles 3s and fails fast with container logs on crash-loop
+- nginx-unprivileged :8080 for auto static packs
+- Static create defaults to port 8080
