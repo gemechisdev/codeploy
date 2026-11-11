@@ -691,7 +691,18 @@ func (r *run) start(ctx context.Context, _ context.CancelCauseFunc) error {
 	r.upstream = st.IP + ":" + strconv.Itoa(r.effectivePort())
 	r.logw.Sys("container " + shortID(id) + " started at " + r.upstream)
 	_, err = e.db.ExecContext(ctx, `UPDATE deployments SET upstream=? WHERE id=?`, r.upstream, r.id)
-	return err
+	if err != nil {
+		return err
+	}
+	// Keep resource config.port aligned with the process listen port (static packs often use 8080).
+	if r.listenPort > 0 && r.res.Cfg.Port != r.listenPort {
+		r.res.Cfg.Port = r.listenPort
+		if raw, mErr := json.Marshal(r.res.Cfg); mErr == nil {
+			_, _ = e.db.ExecContext(ctx, `UPDATE resources SET config_json=? WHERE id=?`, string(raw), r.res.ID)
+			r.logw.Sys(fmt.Sprintf("updated resource port to %d to match the running process", r.listenPort))
+		}
+	}
+	return nil
 }
 
 func shortID(id string) string {

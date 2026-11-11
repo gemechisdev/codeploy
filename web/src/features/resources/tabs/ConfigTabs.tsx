@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { useCreateVolume, usePatchResource, useResourcePolicy, useVolumes } from '@/api/hooks/workloads';
+import { useCreateDomain, useCreateVolume, usePatchResource, useResourcePolicy, useVolumes } from '@/api/hooks/workloads';
 import { ApiError, errorMessage } from '@/api/errors';
 import type { Resource, ResourceConfig } from '@/api/types';
 import { QueryBoundary } from '@/components/app/QueryBoundary';
@@ -20,6 +20,7 @@ type ResourceURLs = {
   public?: { hostname: string; url: string; cert_status?: string }[];
   internal?: string | null;
   container?: string | null;
+  suggested?: { hostname: string; url: string; hint?: string } | null;
 };
 
 export function resourceURLs(r: Resource): ResourceURLs {
@@ -30,6 +31,9 @@ export function OverviewTab({ resource: r }: { resource: Resource }) {
   const c = r.config;
   const urls = resourceURLs(r);
   const publicUrls = urls.public ?? [];
+  const createDomain = useCreateDomain(r.id);
+  const toast = useToast();
+  const { can } = usePermissions();
   return (
     <div className="space-y-4">
       <Card>
@@ -48,11 +52,36 @@ export function OverviewTab({ resource: r }: { resource: Resource }) {
               </ul>
             </div>
           ) : (
-            <p className="text-muted">
-              {r.type === 'database'
-                ? 'Databases are not exposed on the public internet. Use the internal address from other containers on this environment.'
-                : 'No public domain yet. Open the Domains tab and attach a hostname (Caddy will route HTTPS to this container).'}
-            </p>
+            <div className="space-y-2">
+              <p className="text-muted">
+                {r.type === 'database'
+                  ? 'Databases are not exposed on the public internet. Use the internal address from other containers on this environment.'
+                  : 'This deploy is healthy, but nothing is published to the internet yet. Attach a domain so Caddy can route HTTPS to the container.'}
+              </p>
+              {urls.suggested && r.type !== 'database' && can('domain:write') && (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-subtle bg-surface-subtle p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-primary">{urls.suggested.hostname}</p>
+                    <p className="text-[11px] text-muted">{urls.suggested.hint ?? 'Suggested from your panel domain. Point DNS here first.'}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    loading={createDomain.isPending}
+                    onClick={() =>
+                      createDomain.mutate(
+                        { hostname: urls.suggested!.hostname },
+                        {
+                          onSuccess: () => toast.success(`${urls.suggested!.hostname} added. Certificate issuance starts once DNS points at this server.`),
+                          onError: (e) => toast.error(errorMessage(e)),
+                        },
+                      )
+                    }
+                  >
+                    Add domain
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
           {urls.internal && (
             <div>

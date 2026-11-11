@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -114,6 +115,22 @@ func (s *Server) resourceURLs(ctx context.Context, u resourceRow) map[string]any
 	if parsed, err := deploy.ParseConfig(u.CfgJSON); err == nil {
 		port = parsed.Port
 	}
+	var container any
+	var upPort int
+	if u.Active.Valid {
+		var up sql.NullString
+		_ = s.DB.QueryRowContext(ctx, `SELECT upstream FROM deployments WHERE id=?`, u.Active.String).Scan(&up)
+		if up.Valid && strings.TrimSpace(up.String) != "" {
+			container = strings.TrimSpace(up.String)
+			// Prefer the live upstream port over a stale config.port (auto-detect often listens on 8080 while config still says 3000).
+			if i := strings.LastIndex(up.String, ":"); i >= 0 {
+				if p, err := strconv.Atoi(up.String[i+1:]); err == nil && p > 0 {
+					upPort = p
+					port = p
+				}
+			}
+		}
+	}
 	public := make([]map[string]any, 0)
 	rows, err := s.DB.QueryContext(ctx, `SELECT hostname, cert_status, force_https FROM domains WHERE resource_id=? AND kind!='panel' ORDER BY created_at, id`, u.ID)
 	if err == nil {
@@ -144,20 +161,48 @@ func (s *Server) resourceURLs(ctx context.Context, u resourceRow) map[string]any
 		// Docker network alias is the resource slug (see deploy.specFor Aliases).
 		internal = u.Slug + ":" + strconv.Itoa(port)
 	}
-	var container any
-	if u.Active.Valid {
-		var up sql.NullString
-		_ = s.DB.QueryRowContext(ctx, `SELECT upstream FROM deployments WHERE id=?`, u.Active.String).Scan(&up)
-		if up.Valid && strings.TrimSpace(up.String) != "" {
-			container = up.String // host:port on the bridge — useful for debugging, not browser access
+	// Suggest slug.<parent-of-panel-domain> when nothing is attached yet (Coolify-style one-click public URL).
+	var suggested any
+	if len(public) == 0 && u.Type != "database" && u.Slug != "" {
+		var panelHost string
+		_ = s.DB.QueryRowContext(ctx, `SELECT hostname FROM domains WHERE kind='panel' LIMIT 1`).Scan(&panelHost)
+		if base := serviceDomainBase(panelHost); base != "" {
+			host := u.Slug + "." + base
+			suggested = map[string]any{
+				"hostname": host,
+				"url":      "https://" + host,
+				"hint":     "Add this domain to expose the app through Caddy (DNS must point here).",
+			}
 		}
 	}
+	_ = upPort
 	return map[string]any{
-		"primary": primary,
-		"public":  public,
-		"internal": internal,   // slug:port for other containers on the environment network
+		"primary":   primary,
+		"public":    public,
+		"internal":  internal,  // slug:port for other containers on the environment network
 		"container": container, // live deployment upstream (ip:port)
+		"suggested": suggested,
 	}
+}
+
+// serviceDomainBase turns panel.example.com or example.com into example.com for slug.example.com apps.
+func serviceDomainBase(panelHost string) string {
+	h := strings.ToLower(strings.TrimSpace(panelHost))
+	if h == "" || strings.Contains(h, "localhost") || net.ParseIP(h) != nil {
+		return ""
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	// panel.example.com → example.com; app.staging.example.com → staging.example.com (keep ≥2 labels)
+	if strings.HasPrefix(parts[0], "panel") || parts[0] == "www" || parts[0] == "codeplo" {
+		return strings.Join(parts[1:], ".")
+	}
+	if len(parts) >= 3 {
+		return strings.Join(parts[1:], ".")
+	}
+	return h
 }
 
 func (s *Server) findResource(w http.ResponseWriter, r *http.Request, id string) (resourceRow, bool) {

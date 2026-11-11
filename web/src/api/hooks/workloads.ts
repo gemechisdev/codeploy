@@ -92,6 +92,7 @@ export function useCreateDomain(id: string) {
     mutationFn: (body: Schema<'CreateDomainRequest'>) => call(api.POST('/resources/{id}/domains', { params: { path: { id } }, body })),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.resourceSub(id, 'domains') });
+      void qc.invalidateQueries({ queryKey: qk.resource(id) });
       void qc.invalidateQueries({ queryKey: ['edge'] });
     },
   });
