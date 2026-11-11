@@ -52,22 +52,26 @@ export function ResourcePage() {
               title={r.name}
               description={(() => {
                 const u = resourceURLs(r);
-                const links = (u.public?.length ? u.public : (r.primary_domain ? [{ hostname: r.primary_domain, url: `https://${r.primary_domain}` }] : []));
+                const links = (u.public?.length
+                  ? u.public.map((x) => ({ label: x.hostname, url: x.url }))
+                  : (u.host_access?.length
+                      ? u.host_access.map((x) => ({ label: x.url.replace(/^https?:\/\//, ''), url: x.url }))
+                      : (r.primary_domain ? [{ label: r.primary_domain, url: `https://${r.primary_domain}` }] : [])));
                 return (
                   <span className="flex flex-wrap items-center gap-2">
                     <StatusBadge status={r.status} />
                     <Badge>{r.type}</Badge>
                     <Badge tone="brand">{r.environment_name}</Badge>
                     {links.map((l) => (
-                      <a key={l.hostname} href={l.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-[11px] text-brand-primary hover:underline">
-                        {l.hostname}<ExternalLink aria-hidden className="size-3" />
+                      <a key={l.url} href={l.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-[11px] text-brand-primary hover:underline">
+                        {l.label}<ExternalLink aria-hidden className="size-3" />
                       </a>
                     ))}
                     {!links.length && u.internal && (
                       <span className="font-mono text-[11px] text-muted" title="Docker network only">internal {u.internal}</span>
                     )}
                     {!links.length && !u.internal && r.type !== 'database' && (
-                      <span className="text-[11px] text-muted">No public URL — add a domain</span>
+                      <span className="text-[11px] text-muted">No URL yet — redeploy to publish a host port</span>
                     )}
                   </span>
                 );

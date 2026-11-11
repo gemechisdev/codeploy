@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"regexp"
@@ -175,14 +176,101 @@ func (s *Server) resourceURLs(ctx context.Context, u resourceRow) map[string]any
 			}
 		}
 	}
+	// Host-port / free DNS access when no custom domain is attached.
+	var hostAccess any
+	var freeURL any
+	if len(public) == 0 && u.Type != "database" {
+		hostPort := autoHostPortAPI(u.ID)
+		ips := hostIPv4s()
+		links := make([]map[string]any, 0)
+		for _, ip := range ips {
+			links = append(links, map[string]any{
+				"url":  fmt.Sprintf("http://%s:%d", ip, hostPort),
+				"ip":   ip,
+				"port": hostPort,
+			})
+		}
+		if len(links) > 0 {
+			hostAccess = links
+			if primary == nil {
+				primary = links[0]["url"]
+			}
+			// sslip.io resolves name → IP without configuring DNS (Herd-like free hostname).
+			ip := fmt.Sprint(links[0]["ip"])
+			if strings.Count(ip, ".") == 3 {
+				host := fmt.Sprintf("%s.%s.sslip.io", u.Slug, ip)
+				freeURL = map[string]any{
+					"hostname": host,
+					"url":      "http://" + host + ":" + strconv.Itoa(hostPort),
+					"hint":     "Free hostname via sslip.io (resolves to this server). Works without buying a domain. Prefer adding a real domain for HTTPS.",
+				}
+			}
+		} else {
+			hostAccess = []map[string]any{{
+				"url":  fmt.Sprintf("http://127.0.0.1:%d", hostPort),
+				"ip":   "127.0.0.1",
+				"port": hostPort,
+			}}
+			if primary == nil {
+				primary = fmt.Sprintf("http://127.0.0.1:%d", hostPort)
+			}
+		}
+	}
 	_ = upPort
 	return map[string]any{
-		"primary":   primary,
-		"public":    public,
-		"internal":  internal,  // slug:port for other containers on the environment network
-		"container": container, // live deployment upstream (ip:port)
-		"suggested": suggested,
+		"primary":     primary,
+		"public":      public,
+		"internal":    internal,
+		"container":   container,
+		"suggested":   suggested,
+		"host_access": hostAccess,
+		"free_url":    freeURL,
 	}
+}
+
+// autoHostPortAPI matches deploy.autoHostPort (stable 18000–22999 from resource id).
+func autoHostPortAPI(resourceID string) int {
+	h := uint32(2166136261)
+	for i := 0; i < len(resourceID); i++ {
+		h ^= uint32(resourceID[i])
+		h *= 16777619
+	}
+	return 18000 + int(h%5000)
+}
+
+func hostIPv4s() []string {
+	var out []string
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			var ip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.To4() == nil {
+				continue
+			}
+			// Skip link-local
+			if ip.IsLinkLocalUnicast() {
+				continue
+			}
+			out = append(out, ip.String())
+		}
+	}
+	return out
 }
 
 // serviceDomainBase turns panel.example.com or example.com into example.com for slug.example.com apps.

@@ -381,6 +381,8 @@ type run struct {
 	composeDone bool
 	// listenPort overrides Cfg.Port for this deployment when auto-detect picked a different listen port (e.g. nginx 8080).
 	listenPort int
+	// hostAccessPort is a published host port for IP access when no domain is configured.
+	hostAccessPort int
 }
 
 // Run executes one deployment end to end. It returns nothing: the outcome is the deployment's row.

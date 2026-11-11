@@ -21,6 +21,8 @@ type ResourceURLs = {
   internal?: string | null;
   container?: string | null;
   suggested?: { hostname: string; url: string; hint?: string } | null;
+  host_access?: { url: string; ip: string; port: number }[] | null;
+  free_url?: { hostname: string; url: string; hint?: string } | null;
 };
 
 export function resourceURLs(r: Resource): ResourceURLs {
@@ -81,6 +83,26 @@ export function OverviewTab({ resource: r }: { resource: Resource }) {
                   </Button>
                 </div>
               )}
+            </div>
+          )}
+          {(urls.host_access?.length ?? 0) > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Open via server IP (no domain)</p>
+              <ul className="space-y-1">
+                {urls.host_access!.map((h) => (
+                  <li key={h.url}>
+                    <a href={h.url} target="_blank" rel="noreferrer noopener" className="font-mono text-brand-primary hover:underline">{h.url}</a>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-0.5 text-[11px] text-muted">Published on the host when no domain is attached. Use your PC/server LAN or public IP.</p>
+            </div>
+          )}
+          {urls.free_url && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Free hostname (sslip.io)</p>
+              <a href={urls.free_url.url} target="_blank" rel="noreferrer noopener" className="font-mono text-brand-primary hover:underline">{urls.free_url.url}</a>
+              <p className="mt-0.5 text-[11px] text-muted">{urls.free_url.hint}</p>
             </div>
           )}
           {urls.internal && (

@@ -43,7 +43,8 @@ func (r *run) policyOptions() policy.Options {
 	cfg := r.res.Cfg
 	return policy.Options{
 		ResourceID: r.res.Slug, VolumesRoot: r.e.cfg.VolumesRoot, DockerDataDir: r.e.cfg.DockerDataDir,
-		Trusted: cfg.Isolation.Trusted, AllowCaps: cfg.Isolation.CapAdd, AllowPublish: len(cfg.PublishedPorts) > 0,
+		Trusted: cfg.Isolation.Trusted, AllowCaps: cfg.Isolation.CapAdd,
+		AllowPublish: len(cfg.PublishedPorts) > 0 || (r.res.Type != "database" && !r.hasPublicDomain()),
 		AppArmor: r.e.cfg.AppArmor,
 		// Official Redis/Postgres/MySQL/nginx entrypoints drop root→app user via setpriv/gosu; that needs
 		// privilege transition and fails under no-new-privileges (connection refused in health).
@@ -96,7 +97,7 @@ func (r *run) specFor(role string) policy.Container {
 		}
 	}
 	if !hasPort {
-		env = append(env, "PORT="+strconv.Itoa(cfg.Port))
+		env = append(env, "PORT="+strconv.Itoa(r.effectivePort()))
 	}
 	c := policy.Container{
 		Service: "app", Name: r.name, Image: r.tag, Env: env, Restart: cfg.Restart,
@@ -119,12 +120,28 @@ func (r *run) specFor(role string) policy.Container {
 		c.Mounts = append(c.Mounts, policy.Mount{Type: "bind", Source: path.Join(r.e.cfg.VolumesRoot, r.res.Slug, v.Name), Target: v.MountPath})
 	}
 	if role == runtime.RoleApp {
+		contPort := r.effectivePort()
 		for _, p := range cfg.PublishedPorts {
-			c.Ports = append(c.Ports, "127.0.0.1:"+strconv.Itoa(p)+":"+strconv.Itoa(p))
+			// Bind on all interfaces so http://SERVER_IP:port works (personal VPS use-case).
+			c.Ports = append(c.Ports, "0.0.0.0:"+strconv.Itoa(p)+":"+strconv.Itoa(contPort))
+		}
+		// No custom domain yet: publish a stable host port so the app is reachable via IP without DNS.
+		if len(cfg.PublishedPorts) == 0 && r.res.Type != "database" && !r.hasPublicDomain() {
+			hp := autoHostPort(r.res.ID)
+			c.Ports = append(c.Ports, fmt.Sprintf("0.0.0.0:%d:%d", hp, contPort))
+			r.hostAccessPort = hp
 		}
 	}
 	return c
 }
+
+// hasPublicDomain is true when the resource already has a non-panel domain row.
+func (r *run) hasPublicDomain() bool {
+	var n int
+	_ = r.e.db.QueryRow(`SELECT COUNT(*) FROM domains WHERE resource_id=? AND kind!='panel'`, r.res.ID).Scan(&n)
+	return n > 0
+}
+
 
 // ensureVolumeDirs creates each bind volume's directory under the resource's own tree.
 func (r *run) ensureVolumeDirs() error {
@@ -690,6 +707,9 @@ func (r *run) start(ctx context.Context, _ context.CancelCauseFunc) error {
 	}
 	r.upstream = st.IP + ":" + strconv.Itoa(r.effectivePort())
 	r.logw.Sys("container " + shortID(id) + " started at " + r.upstream)
+	if r.hostAccessPort > 0 {
+		r.logw.Sys(fmt.Sprintf("host access on 0.0.0.0:%d (http://<server-ip>:%d) — no domain required", r.hostAccessPort, r.hostAccessPort))
+	}
 	_, err = e.db.ExecContext(ctx, `UPDATE deployments SET upstream=? WHERE id=?`, r.upstream, r.id)
 	if err != nil {
 		return err
@@ -848,8 +868,25 @@ func (r *run) effectivePort() int {
 	if r.listenPort > 0 {
 		return r.listenPort
 	}
+	// Static packs and nginx-unprivileged listen on 8080 even when config still says 3000.
+	if r.res.Type == "static" {
+		return 8080
+	}
+	if strings.Contains(strings.ToLower(r.tag), "nginx-unprivileged") {
+		return 8080
+	}
 	if r.res.Cfg.Port > 0 {
 		return r.res.Cfg.Port
 	}
 	return 80
+}
+
+// autoHostPort picks a stable host port in 18000–22999 from the resource id (no DB needed).
+func autoHostPort(resourceID string) int {
+	h := uint32(2166136261)
+	for i := 0; i < len(resourceID); i++ {
+		h ^= uint32(resourceID[i])
+		h *= 16777619
+	}
+	return 18000 + int(h%5000)
 }
