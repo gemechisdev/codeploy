@@ -15,10 +15,61 @@ import { usePermissions } from '@/lib/permissions';
 
 const Fact = ({ k, children }: { k: string; children: ReactNode }) => <div className="rounded-lg border border-subtle bg-surface-subtle p-3"><dt className="text-[10px] font-semibold uppercase tracking-wider text-muted">{k}</dt><dd className="mt-0.5 break-words text-xs text-primary">{children}</dd></div>;
 
+type ResourceURLs = {
+  primary?: string | null;
+  public?: { hostname: string; url: string; cert_status?: string }[];
+  internal?: string | null;
+  container?: string | null;
+};
+
+export function resourceURLs(r: Resource): ResourceURLs {
+  return (r as Resource & { urls?: ResourceURLs }).urls ?? {};
+}
+
 export function OverviewTab({ resource: r }: { resource: Resource }) {
   const c = r.config;
+  const urls = resourceURLs(r);
+  const publicUrls = urls.public ?? [];
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader title="Access" description="How this resource is reached after a successful deploy." />
+        <CardBody className="space-y-3 text-xs">
+          {publicUrls.length > 0 ? (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Public URLs</p>
+              <ul className="space-y-1">
+                {publicUrls.map((u) => (
+                  <li key={u.hostname} className="flex flex-wrap items-center gap-2">
+                    <a href={u.url} target="_blank" rel="noreferrer noopener" className="font-mono text-brand-primary hover:underline">{u.url}</a>
+                    {u.cert_status && <Badge tone={u.cert_status === 'active' || u.cert_status === 'issued' ? 'green' : 'amber'}>{u.cert_status}</Badge>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-muted">
+              {r.type === 'database'
+                ? 'Databases are not exposed on the public internet. Use the internal address from other containers on this environment.'
+                : 'No public domain yet. Open the Domains tab and attach a hostname (Caddy will route HTTPS to this container).'}
+            </p>
+          )}
+          {urls.internal && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Internal (Docker network)</p>
+              <p className="font-mono text-primary">{urls.internal}</p>
+              <p className="mt-0.5 text-[11px] text-muted">Other containers in this environment can reach the service at this host:port (resource slug as DNS name).</p>
+            </div>
+          )}
+          {urls.container && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Container upstream</p>
+              <p className="font-mono text-secondary">{urls.container}</p>
+              <p className="mt-0.5 text-[11px] text-muted">Live address on the bridge network for this deployment. Not reachable from your browser.</p>
+            </div>
+          )}
+        </CardBody>
+      </Card>
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Fact k="Image source">{c.image.mode === 'pull' ? <span className="font-mono">{c.image.ref}</span> : 'Built on this host from Git'}</Fact>
         <Fact k="Active digest"><span className="font-mono">{shortDigest(r.active_digest)}</span></Fact>

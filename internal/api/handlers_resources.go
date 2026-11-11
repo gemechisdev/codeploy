@@ -60,7 +60,7 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 			internalErr(w, err)
 			return
 		}
-		items = append(items, u.response())
+		items = append(items, s.resourceResponse(r.Context(), u))
 	}
 	if err := rows.Err(); err != nil {
 		internalErr(w, err)
@@ -79,7 +79,7 @@ func (s *Server) getResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u, ok := s.findResource(w, r, chi.URLParam(r, "id")); ok {
-		writeJSON(w, 200, u.response())
+		writeJSON(w, 200, s.resourceResponse(r.Context(), u))
 	}
 }
 
@@ -372,7 +372,7 @@ func (s *Server) insertResource(w http.ResponseWriter, r *http.Request, e *deplo
 		internalErr(w, err)
 		return nil, false
 	}
-	return &createdResource{ID: id, Resource: u.response(), Deployment: deployment}, true
+	return &createdResource{ID: id, Resource: s.resourceResponse(r.Context(), u), Deployment: deployment}, true
 }
 
 func (s *Server) environmentExists(ctx context.Context, id string) bool {
@@ -431,7 +431,7 @@ func (s *Server) patchResource(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Bus.Publish("resource.updated", map[string]any{"resource_id": cur.ID})
 	if u, ok := s.findResource(w, r, cur.ID); ok {
-		writeJSON(w, 200, u.response())
+		writeJSON(w, 200, s.resourceResponse(r.Context(), u))
 	}
 }
 
@@ -525,7 +525,7 @@ func (s *Server) stopResource(w http.ResponseWriter, r *http.Request) {
 	s.Bus.Publish("resource.updated", map[string]any{"resource_id": cur.ID})
 	s.reconcileAfter() // the route drops as soon as desired_state says stopped, without waiting for Docker
 	if u, ok := s.findResource(w, r, cur.ID); ok {
-		writeJSON(w, 200, u.response())
+		writeJSON(w, 200, s.resourceResponse(r.Context(), u))
 	}
 }
 
@@ -575,7 +575,7 @@ func (s *Server) startResource(w http.ResponseWriter, r *http.Request) {
 	s.Bus.Publish("resource.updated", map[string]any{"resource_id": cur.ID})
 	s.Bus.Publish("deployment.updated", map[string]any{"deployment_id": depID, "resource_id": cur.ID})
 	if u, ok := s.findResource(w, r, cur.ID); ok {
-		writeJSON(w, 200, u.response())
+		writeJSON(w, 200, s.resourceResponse(r.Context(), u))
 	}
 }
 
@@ -624,7 +624,7 @@ func (s *Server) restartResource(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Bus.Publish("resource.updated", map[string]any{"resource_id": cur.ID})
 	if u, ok := s.findResource(w, r, cur.ID); ok {
-		writeJSON(w, 200, u.response())
+		writeJSON(w, 200, s.resourceResponse(r.Context(), u))
 	}
 }
 

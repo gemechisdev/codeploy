@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -97,6 +98,65 @@ func (u resourceRow) response() map[string]any {
 		"status": u.Status, "desired_state": u.Desired,
 		"active_deployment_id": nul(u.Active), "active_digest": nul(u.Digest), "primary_domain": nul(u.Primary),
 		"started_at": nul(u.Started), "created_at": u.Created,
+	}
+}
+
+// resourceResponse is response() plus urls (public domains + internal network address) for the UI.
+func (s *Server) resourceResponse(ctx context.Context, u resourceRow) map[string]any {
+	m := u.response()
+	m["urls"] = s.resourceURLs(ctx, u)
+	return m
+}
+
+// resourceURLs lists how operators reach this resource: public HTTPS hostnames and the in-cluster DNS name.
+func (s *Server) resourceURLs(ctx context.Context, u resourceRow) map[string]any {
+	port := 0
+	if parsed, err := deploy.ParseConfig(u.CfgJSON); err == nil {
+		port = parsed.Port
+	}
+	public := make([]map[string]any, 0)
+	rows, err := s.DB.QueryContext(ctx, `SELECT hostname, cert_status, force_https FROM domains WHERE resource_id=? AND kind!='panel' ORDER BY created_at, id`, u.ID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var host, cert string
+			var fh int
+			if rows.Scan(&host, &cert, &fh) != nil || host == "" {
+				continue
+			}
+			scheme := "https"
+			if fh == 0 {
+				scheme = "http"
+			}
+			public = append(public, map[string]any{
+				"hostname": host, "url": scheme + "://" + host, "cert_status": cert,
+			})
+		}
+	}
+	var primary any
+	if len(public) > 0 {
+		primary = public[0]["url"]
+	} else if u.Primary.Valid && u.Primary.String != "" {
+		primary = "https://" + u.Primary.String
+	}
+	var internal any
+	if port > 0 && u.Slug != "" {
+		// Docker network alias is the resource slug (see deploy.specFor Aliases).
+		internal = u.Slug + ":" + strconv.Itoa(port)
+	}
+	var container any
+	if u.Active.Valid {
+		var up sql.NullString
+		_ = s.DB.QueryRowContext(ctx, `SELECT upstream FROM deployments WHERE id=?`, u.Active.String).Scan(&up)
+		if up.Valid && strings.TrimSpace(up.String) != "" {
+			container = up.String // host:port on the bridge — useful for debugging, not browser access
+		}
+	}
+	return map[string]any{
+		"primary": primary,
+		"public":  public,
+		"internal": internal,   // slug:port for other containers on the environment network
+		"container": container, // live deployment upstream (ip:port)
 	}
 }
 
@@ -345,7 +405,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 				internalErr(w, err)
 				return
 			}
-			items = append(items, u.response())
+			items = append(items, s.resourceResponse(r.Context(), u))
 		}
 		rs.Close()
 		if err := rs.Err(); err != nil {

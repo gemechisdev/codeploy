@@ -27,7 +27,7 @@ export function DomainsTab({ resource: r }: { resource: Resource }) {
           <Table><THead><tr><TH>Hostname</TH><TH>Certificate</TH><TH>Expires</TH><TH><span className="sr-only">Actions</span></TH></tr></THead>
             <TBody>{d.items.map((x) => (
               <TR key={x.id}>
-                <TD><span className="font-mono text-[11px] font-semibold text-primary">{x.hostname}</span>{x.cert_error && <p role="alert" className="mt-0.5 max-w-sm text-[11px] text-red-600">{x.cert_error}</p>}</TD>
+                <TD><a href={`https://${x.hostname}`} target="_blank" rel="noreferrer noopener" className="font-mono text-[11px] font-semibold text-brand-primary hover:underline">{x.hostname}</a>{x.cert_error && <p role="alert" className="mt-0.5 max-w-sm text-[11px] text-red-600">{x.cert_error}</p>}</TD>
                 <TD><StatusBadge status={x.cert_status} /></TD>
                 <TD title={absTime(x.cert_expires_at)} className="text-secondary">{x.cert_expires_at ? relTime(x.cert_expires_at) : '—'}</TD>
                 <TD>{can('domain:write') && <Button variant="ghost" size="icon" aria-label={`Remove ${x.hostname}`} onClick={() => setRm({ id: x.id, hostname: x.hostname })}><Trash2 className="size-3.5 text-red-500" /></Button>}</TD>

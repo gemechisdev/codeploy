@@ -18,7 +18,7 @@ import { RESOURCE_TABS, type ResourceTab } from '@/router';
 import { DeploymentsTab } from './tabs/DeploymentsTab';
 import { DomainsTab } from './tabs/DomainsTab';
 import { EnvTab } from './tabs/EnvTab';
-import { LimitsTab, IsolationTab, OverviewTab, VolumesTab, BuildTab } from './tabs/ConfigTabs';
+import { LimitsTab, IsolationTab, OverviewTab, VolumesTab, BuildTab, resourceURLs } from './tabs/ConfigTabs';
 import { LogsTab } from './tabs/LogsTab';
 import { ShellTab } from './tabs/ShellTab';
 import { SourceTab } from './tabs/SourceTab';
@@ -50,7 +50,28 @@ export function ResourcePage() {
           <>
             <PageHeader
               title={r.name}
-              description={<span className="flex flex-wrap items-center gap-2"><StatusBadge status={r.status} /><Badge>{r.type}</Badge><Badge tone="brand">{r.environment_name}</Badge>{r.primary_domain && <a href={`https://${r.primary_domain}`} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-[11px] text-brand-primary hover:underline">{r.primary_domain}<ExternalLink aria-hidden className="size-3" /></a>}</span>}
+              description={(() => {
+                const u = resourceURLs(r);
+                const links = (u.public?.length ? u.public : (r.primary_domain ? [{ hostname: r.primary_domain, url: `https://${r.primary_domain}` }] : []));
+                return (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={r.status} />
+                    <Badge>{r.type}</Badge>
+                    <Badge tone="brand">{r.environment_name}</Badge>
+                    {links.map((l) => (
+                      <a key={l.hostname} href={l.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-[11px] text-brand-primary hover:underline">
+                        {l.hostname}<ExternalLink aria-hidden className="size-3" />
+                      </a>
+                    ))}
+                    {!links.length && u.internal && (
+                      <span className="font-mono text-[11px] text-muted" title="Docker network only">internal {u.internal}</span>
+                    )}
+                    {!links.length && !u.internal && r.type !== 'database' && (
+                      <span className="text-[11px] text-muted">No public URL — add a domain</span>
+                    )}
+                  </span>
+                );
+              })()}
               actions={<>
                 {can('deploy:create') && <Button loading={deploy.isPending} disabled={busy} onClick={() => deploy.mutate({}, { onSuccess: () => { toast.success('Deployment started.'); void nav({ to: '/resources/$resourceId', params: { resourceId }, search: { tab: 'deployments' } }); }, onError: (e) => toast.error(errorMessage(e)) })}><Rocket className="size-3.5" />Deploy</Button>}
                 {can('resource:control') && r.active_deployment_id && (r.status === 'stopped'
